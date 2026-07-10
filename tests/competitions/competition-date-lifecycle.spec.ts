@@ -31,7 +31,7 @@ async function transition(id: string, status: string, token: string) {
 // local runs against a DB that isn't reset each time (CI always starts
 // fresh, but local iteration doesn't).
 function randomDaysFromNow(): number {
-  return 30 + Math.floor(Math.random() * 5000);
+  return 30 + Math.floor(Math.random() * 500_000);
 }
 
 async function getStatus(id: string, token: string): Promise<string> {

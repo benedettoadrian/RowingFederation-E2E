@@ -137,9 +137,30 @@ async function createClub(adminToken: string, label: string) {
  * isEligibleForCompetition() requires ACTIVE status, and the default at
  * creation is PENDING_APPROVAL.
  */
-export async function setupInscriptionFixtures(regattaToken: string) {
+export async function setupInscriptionFixtures(
+  regattaToken: string,
+  opts: { scoresInCircuit?: boolean; advanceToClosed?: boolean } = {}
+) {
   const suffix = randomUUID().slice(0, 8);
   const adminToken = await apiLoginAs("ADMIN");
+
+  // Only needed to reach CLOSED (IN_REVIEW -> CLOSED requires
+  // refereePresidentId already set, per competition-date-status.service.ts)
+  // — created unconditionally is cheap and keeps this block simple.
+  const refereeEmail = `referee-${suffix}@e2e.test`;
+  const referee = await api.post<{ data: { id: string } }>(
+    "/users",
+    {
+      email: refereeEmail,
+      password: "E2eTest123",
+      firstName: "Referee",
+      lastName: suffix,
+      birthDate: "1980-01-01",
+      gender: "MALE",
+      role: "REFEREE",
+    },
+    adminToken
+  );
 
   const club1Id = await createClub(adminToken, `${suffix}A`);
   const club2Id = await createClub(adminToken, `${suffix}B`);
@@ -207,6 +228,7 @@ export async function setupInscriptionFixtures(regattaToken: string) {
       gender: "MALE",
       distance: 1000,
       hasHeats: false,
+      ...(opts.scoresInCircuit && { scoresInCircuit: true }),
     },
     regattaToken
   );
@@ -223,6 +245,7 @@ export async function setupInscriptionFixtures(regattaToken: string) {
       gender: "MALE",
       distance: 2000,
       hasHeats: false,
+      ...(opts.scoresInCircuit && { scoresInCircuit: true }),
     },
     regattaToken
   );
@@ -236,7 +259,15 @@ export async function setupInscriptionFixtures(regattaToken: string) {
   const dateFixtures = { clubId: club1Id, pistaId: pista.data.id, programId: program.data.id };
   const created = await api.post<{ data: { id: string } }>(
     "/competitions/competition-dates",
-    competitionDatePayload(dateFixtures, 30 + Math.floor(Math.random() * 5000)),
+    competitionDatePayload(
+      dateFixtures,
+      // CompetitionDate.date is unique DB-wide. This fixture is now called
+      // from ~20 tests across 5+ files (inscriptions, sorteo, results,
+      // standings) — 5000 days of range collided under that volume
+      // (birthday paradox). Widened by 100x.
+      30 + Math.floor(Math.random() * 500_000),
+      opts.advanceToClosed ? { refereePresidentId: referee.data.id } : {}
+    ),
     regattaToken
   );
   const competitionDateId = created.data.id;
@@ -247,6 +278,19 @@ export async function setupInscriptionFixtures(regattaToken: string) {
     { status: "INSCRIPTION_OPEN" },
     regattaToken
   );
+
+  if (opts.advanceToClosed) {
+    await api.patch(
+      `/competitions/competition-dates/${competitionDateId}/status`,
+      { status: "IN_REVIEW" },
+      regattaToken
+    );
+    await api.patch(
+      `/competitions/competition-dates/${competitionDateId}/status`,
+      { status: "CLOSED" },
+      regattaToken
+    );
+  }
 
   async function createDelegateAndAthlete(clubId: string, label: string) {
     const email = `delegate-${label}@e2e.test`;
@@ -301,5 +345,10 @@ export async function setupInscriptionFixtures(regattaToken: string) {
     boatAthleteCount: 1,
     club1: club1Fixtures,
     club2: club2Fixtures,
+    referee: {
+      userId: referee.data.id,
+      email: refereeEmail,
+      password: "E2eTest123",
+    },
   };
 }
