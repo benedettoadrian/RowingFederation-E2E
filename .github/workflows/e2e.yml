@@ -12,29 +12,34 @@ jobs:
   e2e-smoke:
     name: E2E Smoke (Tier 0)
     runs-on: ubuntu-latest
-    # Validates this repo's tests against Backend/Frontend main — never a PR branch on
-    # those repos (that's more CI maturity than this project needs yet). Mirrors the
-    # e2e-smoke job in RowingFederation-Backend/.github/workflows/ci.yml and
-    # RowingFederation-Frontend/.github/workflows/ci-frontend.yml; keep the three in sync.
+    # Validates this repo's tests against Backend/Frontend develop — never a PR branch
+    # on those repos. develop is where active work + all cross-repo fixes actually
+    # live right now; main lags behind (confirmed 2026-07-10: main's build script
+    # swallows tsc errors, ~30 accumulated real type errors, missing testids/rate-
+    # limit fixes). Revisit once main gets a real release process and stays in sync
+    # with develop. Mirrors the e2e-smoke job in
+    # RowingFederation-Backend/.github/workflows/ci.yml and
+    # RowingFederation-Frontend/.github/workflows/ci-frontend.yml; keep the three in
+    # sync.
     steps:
       - name: Checkout E2E suite (self)
         uses: actions/checkout@v4
         with:
           path: RowingFederation-E2E
 
-      - name: Checkout Backend (main)
+      - name: Checkout Backend (develop)
         uses: actions/checkout@v4
         with:
           repository: CoLAB-Sacramento/RowingFederation-Backend
-          ref: main
+          ref: develop
           token: ${{ secrets.E2E_CROSS_REPO_PAT }}
           path: RowingFederation-Backend
 
-      - name: Checkout Frontend (main)
+      - name: Checkout Frontend (develop)
         uses: actions/checkout@v4
         with:
           repository: benedettoadrian/RowingFederation-Frontend
-          ref: main
+          ref: develop
           token: ${{ secrets.E2E_CROSS_REPO_PAT }}
           path: RowingFederation-Frontend
 
