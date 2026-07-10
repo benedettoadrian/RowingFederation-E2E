@@ -40,6 +40,8 @@ export const api = {
     request<T>("POST", path, { body, token }),
   patch: <T>(path: string, body: unknown, token?: string) =>
     request<T>("PATCH", path, { body, token }),
+  put: <T>(path: string, body: unknown, token?: string) =>
+    request<T>("PUT", path, { body, token }),
 };
 
 export async function waitForHealth(maxWaitMs = 60_000): Promise<void> {

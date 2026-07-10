@@ -13,11 +13,13 @@ export type RoleKey =
   | "REGATTA_COMMISSION"
   | "REFEREE"
   | "CLUB_DELEGATE"
+  | "CLUB_DELEGATE_2"
   | "DELEGATE";
 
 interface Credentials {
   credentials: Record<RoleKey, { email: string; password: string; userId?: string }>;
   clubs: { club1: string; club2: string };
+  athletes: { club1: string; club2: string };
 }
 
 const credentialsPath = fileURLToPath(new URL("./credentials.json", import.meta.url));

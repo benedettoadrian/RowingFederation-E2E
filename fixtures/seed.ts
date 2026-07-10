@@ -44,7 +44,17 @@ type RoleKey =
   | "REGATTA_COMMISSION"
   | "REFEREE"
   | "CLUB_DELEGATE"
+  | "CLUB_DELEGATE_2"
   | "DELEGATE";
+
+/** RoleKey -> real backend UserRole sent in the create-user payload. Only
+ * differs for CLUB_DELEGATE_2, which is a second fixture identity for the
+ * same real CLUB_DELEGATE role, scoped to club2 instead of club1 — needed
+ * for cross-club IDOR tests (a single CLUB_DELEGATE fixture can't prove
+ * anything about cross-club isolation on its own). */
+const BACKEND_ROLE: Partial<Record<RoleKey, string>> = {
+  CLUB_DELEGATE_2: "CLUB_DELEGATE",
+};
 
 const DIRECTOR_ROLES: RoleKey[] = [
   "PRESIDENT",
@@ -66,6 +76,7 @@ const credentials: Record<RoleKey, { email: string; password: string; userId?: s
   REGATTA_COMMISSION: { email: "regatta-commission@e2e.test", password: FIXTURE_PASSWORD },
   REFEREE: { email: "referee@e2e.test", password: FIXTURE_PASSWORD },
   CLUB_DELEGATE: { email: "club-delegate-1@e2e.test", password: FIXTURE_PASSWORD },
+  CLUB_DELEGATE_2: { email: "club-delegate-2@e2e.test", password: FIXTURE_PASSWORD },
   DELEGATE: { email: "delegate@e2e.test", password: FIXTURE_PASSWORD },
 };
 
@@ -97,7 +108,7 @@ async function main() {
   );
   console.log(`  club1=${club1.data.id} club2=${club2.data.id}`);
 
-  console.log("Creating 10 remaining role fixture users...");
+  console.log("Creating 11 remaining role fixture users...");
   for (const role of Object.keys(credentials) as RoleKey[]) {
     if (role === "ADMIN") continue; // already the bootstrap admin
 
@@ -112,7 +123,7 @@ async function main() {
       lastName: localPart.replace(/-/g, " "),
       birthDate: "1990-01-01",
       gender: "MALE",
-      role,
+      role: BACKEND_ROLE[role] ?? role,
     };
 
     if (isDirector) {
@@ -122,11 +133,27 @@ async function main() {
     if (role === "CLUB_DELEGATE") {
       payload.clubId = club1.data.id;
     }
+    if (role === "CLUB_DELEGATE_2") {
+      payload.clubId = club2.data.id;
+    }
 
     const created = await api.post<CreatedUser>("/users", payload, adminToken);
     fixture.userId = created.data.id;
     console.log(`  ${role} -> ${fixture.email} (${created.data.id})`);
   }
+
+  console.log("Creating 1 fixture athlete per club (for cross-club IDOR tests)...");
+  const athlete1 = await api.post<CreatedUser>(
+    "/athletes",
+    athletePayload("ClubUno", "40111222", club1.data.id),
+    adminToken
+  );
+  const athlete2 = await api.post<CreatedUser>(
+    "/athletes",
+    athletePayload("ClubDos", "40111333", club2.data.id),
+    adminToken
+  );
+  console.log(`  athlete(club1)=${athlete1.data.id} athlete(club2)=${athlete2.data.id}`);
 
   await writeFile(
     new URL("./credentials.json", import.meta.url),
@@ -134,6 +161,7 @@ async function main() {
       {
         credentials,
         clubs: { club1: club1.data.id, club2: club2.data.id },
+        athletes: { club1: athlete1.data.id, club2: athlete2.data.id },
       },
       null,
       2
@@ -141,6 +169,19 @@ async function main() {
   );
 
   console.log("\nSeed complete. Wrote fixtures/credentials.json");
+}
+
+function athletePayload(surnameSuffix: string, documentNumber: string, clubId: string) {
+  return {
+    firstName: "Atleta",
+    firstSurname: surnameSuffix,
+    gender: "MALE",
+    birthdate: "2000-01-01",
+    nationality: "Uruguay",
+    documentType: "DNI",
+    documentNumber,
+    currentClubId: clubId,
+  };
 }
 
 function clubPayload(name: string, abbreviation: string) {
