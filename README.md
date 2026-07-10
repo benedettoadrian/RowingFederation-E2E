@@ -34,6 +34,87 @@ npm run stack:down    # tears everything down, including the postgres volume
 Ports (offset from the normal dev stack so both can run at once):
 Postgres `5433`, Backend `3001`, OCR stub `8002`, Frontend `5174`.
 
+Tier 1 (`npm run test:e2e:tier1`, or `npm run test:e2e` for everything) covers negative/security
+cases too slow or too flaky-under-parallelism for PR gating — run nightly, not on every push.
+`--workers=1` is recommended for tier1: the OCR circuit breaker test relies on process-wide
+singleton state that a parallel worker's unrelated successful OCR call can reset.
+
+**Rate limiting resets on stack restart, not on reseed.** The E2E stack overrides
+`RATE_LIMIT_MAX_REQUESTS`/`LOGIN_RATE_LIMIT_MAX_OVERRIDE` to `1000`/15min (real prod: 500 and
+10 respectively) — generous, but repeated full-suite runs against the same long-lived backend
+container within a 15-minute window (e.g. iterating locally without `stack:down`) can still
+exhaust it and produce `429 RATE_LIMIT_EXCEEDED`/`LOGIN_RATE_LIMIT_EXCEEDED`. Not a product bug
+— if you hit it locally, `npm run stack:down && npm run stack:up && npm run seed` clears it. CI
+runs always start from a fresh container so this doesn't occur there.
+
+**Timing (2026-07-10, full stack incl. build, M-series Mac, fresh DB):** 97 tier0 tests in
+~19s wall time; 3 tier1 tests in ~1.5s (`--workers=1`). Comfortably fast enough that nothing
+needed to be demoted from tier0 to tier1 for speed — the split is purely about flakiness/known-
+gap isolation, not runtime budget. Re-measure if the suite grows substantially.
+
+## Adding a new test
+
+1. Pick (or create) the matching `tests/<domain>/` folder — mirrors the backend module
+   layout (`athletes/`, `clubs/`, `competitions/`, `news/`, `users/`, `security-rbac/`, `i18n/`,
+   `audit/`).
+2. Prefer `fixtures/lib/api.ts`'s `api.get/post/patch/put/delete/postMultipart` over UI
+   interaction for setup/assertions — only drive the actual browser (`fixtures/auth.ts`'s
+   `loginAs(page, role)`) when the thing under test is genuinely UI behavior (a form, a
+   redirect, a rendered page). Most of this suite is API-level for speed and determinism; a
+   handful of tests (`tests/auth/login.spec.ts`, `tests/i18n/locale-render.spec.ts`) are
+   UI-level on purpose.
+3. Reuse `fixtures/lib/competitions.ts`'s `setupInscriptionFixtures`/
+   `setupCompetitionDateFixtures` instead of hand-rolling club/pista/programa/event chains —
+   most competition-domain tests need the same scaffolding.
+4. Tag every test `@tier0` or `@tier1` in the test name (not a Playwright `tag` option — this
+   suite uses `--grep` on the literal string). Default to `@tier0` unless the test is a known
+   negative/security case that's slow, needs isolation from parallel workers, or documents a
+   confirmed-but-deferred gap.
+5. Random test data needs real entropy — this suite hit repeated collisions from short slices
+   (`randomUUID().slice(0,3)` for club abbreviations, narrow day ranges for `CompetitionDate`,
+   etc.) once fixture volume grew. Use `randomUUID()` in full or a wide range for anything with
+   a DB-wide uniqueness constraint, not just a per-record-scoped one.
+6. Don't assume a response shape — this suite found several real deviations from the obvious
+   guess (`PATCH .../status` returns `{success,message}` with no `data`; audit logs are
+   paginated under `data.auditLogs`, not a bare array; `entityType` is stored upper-cased).
+   Confirm by reading the controller/DTO, not by guessing, and prefer a follow-up `GET` over
+   trusting a write response's shape.
+7. Run it against the real stack (`npm run seed` then the relevant `playwright test <file>`)
+   at least twice on a fresh DB before considering it done — flakiness in this suite has always
+   come from shared/singleton backend state or fixture collisions, both of which only show up
+   under a real run, never under `tsc --noEmit`.
+
+## Rotating the cross-repo CI token
+
+`E2E_CROSS_REPO_PAT` (GitHub Actions secret, set individually on `RowingFederation-Backend`,
+`RowingFederation-Frontend`, and this repo — no shared org secret, since Backend and
+Frontend/E2E live under different GitHub owners) is a classic PAT with `repo` scope, used by
+each repo's `e2e-smoke` CI job to check out the other two repos' `develop` branch. To rotate:
+generate a new classic PAT (GitHub → Settings → Developer settings → Personal access tokens →
+Tokens (classic)) with `repo` scope, then update the `E2E_CROSS_REPO_PAT` secret on all three
+repos (Settings → Secrets and variables → Actions) — a token missing from any one of the three
+breaks that repo's `e2e-smoke` job specifically, not the others.
+
+## Known gaps documented, not fixed (deliberate — see full test plan for the decision record)
+
+These are pinned by dedicated `KNOWN GAP`-named tests so a future change that silently starts
+enforcing (or further breaking) them shows up as a failing/changed test, not a surprise:
+
+- **Inscription conflict**: no backend check prevents the same athlete being entered in two
+  events on the same competition date — `tests/competitions/inscription.spec.ts`.
+- **Submission lock is cosmetic**: `isLocked` is set on confirm but never read by
+  create/update/withdraw crew-entry use cases, and unlock is self-service by the club's own
+  delegate, not admin-restricted — `tests/competitions/inscription.spec.ts`.
+- **Document upload validation returns 500, not 400**: bad mimetype / oversized file never hit
+  the existing (but unwired) `handleMulterError` — `tests/athletes/document-upload-validation.spec.ts`
+  (`@tier1`).
+- **Inscription window has no time check**: `inscriptionCloseAt` passing doesn't block
+  creation; only the `status` field does, and that's cron-updated on a lag —
+  `tests/competitions/inscription-window.spec.ts`.
+- **`canRegisterAthletes` DTO field is misleading for DEBTOR clubs**: says `true`, but a DEBTOR
+  club's own delegate is actually blocked (400) from creating an athlete —
+  `tests/clubs/club-status.spec.ts`.
+
 ## Known issues found while building this
 
 1. **`DropdownMenuItem` (Topbar.tsx logout item) `data-testid` doesn't reach the DOM. Not
