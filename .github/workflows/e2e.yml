@@ -12,6 +12,9 @@ jobs:
   e2e-smoke:
     name: E2E Smoke (Tier 0)
     runs-on: ubuntu-latest
+    # 2026-07-10: informative-only during burn-in — flip to false once this job has
+    # been confirmed stable against real third-party PRs, not just local/manual runs.
+    continue-on-error: true
     # Validates this repo's tests against Backend/Frontend develop — never a PR branch
     # on those repos. develop is where active work + all cross-repo fixes actually
     # live right now; main lags behind (confirmed 2026-07-10: main's build script
