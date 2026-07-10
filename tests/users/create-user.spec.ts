@@ -95,7 +95,9 @@ test("R-ROLE-004: allows 2 CLUB_DELEGATE per club, rejects the 3rd @tier0", asyn
     "/clubs",
     {
       name: `Club R-ROLE-004 ${randomUUID().slice(0, 8)}`,
-      abbreviation: randomUUID().slice(0, 3).toUpperCase(),
+      // 5 chars, not 3 — 16^3 collided under parallel test execution across
+      // this suite's growing number of club creations.
+      abbreviation: randomUUID().replace(/-/g, "").slice(0, 5).toUpperCase(),
       addressCountry: "Uruguay",
       addressState: "Montevideo",
       addressCity: "Montevideo",

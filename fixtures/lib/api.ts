@@ -42,6 +42,7 @@ export const api = {
     request<T>("PATCH", path, { body, token }),
   put: <T>(path: string, body: unknown, token?: string) =>
     request<T>("PUT", path, { body, token }),
+  delete: <T>(path: string, token?: string) => request<T>("DELETE", path, { token }),
   postMultipart: async <T>(path: string, form: FormData, token?: string): Promise<T> => {
     const res = await fetch(`${API_URL}/api/v1${path}`, {
       method: "POST",

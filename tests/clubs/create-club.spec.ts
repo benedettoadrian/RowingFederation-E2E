@@ -9,9 +9,13 @@ import { api, ApiError } from "../../fixtures/lib/api.js";
 
 function clubPayload(overrides: Record<string, unknown> = {}) {
   const suffix = randomUUID().slice(0, 8);
+  // Independent randomUUID call for the abbreviation, not derived from
+  // `suffix` — a 4-char slice of an 8-char suffix collided under parallel
+  // test execution across this suite's growing number of club creations.
+  const abbreviation = randomUUID().replace(/-/g, "").slice(0, 5).toUpperCase();
   return {
     name: `Club Create Test ${suffix}`,
-    abbreviation: suffix.slice(0, 4).toUpperCase().replace(/[^A-Z0-9]/g, "9"),
+    abbreviation,
     addressCountry: "Uruguay",
     addressState: "Montevideo",
     addressCity: "Montevideo",
