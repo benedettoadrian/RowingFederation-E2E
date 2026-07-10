@@ -18,6 +18,10 @@
  *   - documentNumber containing "OCRFAIL"        -> /extract-document returns REVIEW
  *   - athleteDocumentNumber containing "OCRFAIL"  -> /validate-consent returns REVIEW
  *   - uploaded filename containing "BADIMG"       -> /validate-image returns REJECTED
+ *   - documentNumber containing "OCRDOWN"         -> /extract-document returns 500
+ *     (a real HTTP failure, unlike OCRFAIL's 200/REVIEW — needed to drive
+ *     ocr-http-client.service.ts's circuit breaker, which only counts
+ *     non-2xx/timeout/connection-error as a failure via recordFailure())
  */
 import express from "express";
 import multer from "multer";
@@ -62,6 +66,11 @@ app.post("/extract-document", upload.single("file"), (req, res) => {
   const birthDate = req.body.birthDate as string | undefined;
   const firstName = req.body.firstName as string | undefined;
   const lastName = req.body.lastName as string | undefined;
+
+  if (documentNumber.includes("OCRDOWN")) {
+    res.status(500).json({ detail: "Simulated OCR service failure (E2E stub)" });
+    return;
+  }
 
   const forceReview = documentNumber.includes("OCRFAIL");
 

@@ -139,7 +139,11 @@ async function createClub(adminToken: string, label: string) {
  */
 export async function setupInscriptionFixtures(
   regattaToken: string,
-  opts: { scoresInCircuit?: boolean; advanceToClosed?: boolean } = {}
+  opts: {
+    scoresInCircuit?: boolean;
+    advanceToClosed?: boolean;
+    dateOverrides?: Record<string, unknown>;
+  } = {}
 ) {
   const suffix = randomUUID().slice(0, 8);
   const adminToken = await apiLoginAs("ADMIN");
@@ -266,7 +270,10 @@ export async function setupInscriptionFixtures(
       // standings) — 5000 days of range collided under that volume
       // (birthday paradox). Widened by 100x.
       30 + Math.floor(Math.random() * 500_000),
-      opts.advanceToClosed ? { refereePresidentId: referee.data.id } : {}
+      {
+        ...(opts.advanceToClosed && { refereePresidentId: referee.data.id }),
+        ...opts.dateOverrides,
+      }
     ),
     regattaToken
   );
