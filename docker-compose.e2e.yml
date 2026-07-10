@@ -1,0 +1,236 @@
+# =================================================================
+# ROWING FEDERATION E2E — Cross-repo integration stack
+# =================================================================
+# Builds the real Backend + Frontend production images (siblings checked
+# out at ../RowingFederation-Backend and ../RowingFederation-Frontend —
+# same convention the Backend repo's own dev docker-compose.yml already
+# uses for ../RowingFederation-OCR) against a disposable test Postgres and
+# a deterministic OCR stub (see ocr-stub/README notes in server.ts).
+#
+# Ports are offset from the normal dev stack (5432/3000/5173/8001) so this
+# can run locally alongside an existing `docker compose up` in the Backend
+# repo without colliding.
+#
+# Test-only RSA keypairs below — never used outside this compose file, not
+# production secrets. Same practice already used in the Backend repo's own
+# CI workflow (.github/workflows/ci.yml, unit-tests job).
+# =================================================================
+
+services:
+  postgres-test:
+    image: postgres:16-alpine
+    container_name: e2e-postgres
+    environment:
+      POSTGRES_USER: e2e
+      POSTGRES_PASSWORD: e2e
+      POSTGRES_DB: rowing_e2e
+    ports:
+      - "5433:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U e2e -d rowing_e2e"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 5s
+    networks:
+      - e2e-network
+
+  ocr-stub:
+    build:
+      context: ./ocr-stub
+    container_name: e2e-ocr-stub
+    ports:
+      - "8002:8001"
+    environment:
+      PORT: 8001
+    networks:
+      - e2e-network
+
+  # S3-compatible double for Cloudflare R2 — real R2 has a fixed
+  # <account>.r2.cloudflarestorage.com endpoint, not something a test stack
+  # can point at, so CloudflareR2StorageService gained an endpoint override
+  # (CLOUDFLARE_R2_ENDPOINT_OVERRIDE) specifically for this. Unlocks running
+  # the backend as NODE_ENV=production for real here — see the `backend`
+  # service comment below for why that matters beyond storage.
+  minio:
+    image: minio/minio:latest
+    container_name: e2e-minio
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: e2eminioadmin
+      MINIO_ROOT_PASSWORD: e2eminioadmin
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 5s
+    networks:
+      - e2e-network
+
+  # One-shot init container: creates the bucket MinIO doesn't have by
+  # default and exits. `backend` waits on this completing, not on `minio`
+  # directly, so the bucket is guaranteed to exist before the app starts.
+  minio-init:
+    image: minio/mc:latest
+    container_name: e2e-minio-init
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint: >
+      sh -c "
+        mc alias set e2e http://minio:9000 e2eminioadmin e2eminioadmin &&
+        mc mb --ignore-existing e2e/fedururemo-e2e &&
+        mc anonymous set download e2e/fedururemo-e2e
+      "
+    networks:
+      - e2e-network
+
+  backend:
+    build:
+      context: ../RowingFederation-Backend
+      dockerfile: Dockerfile
+    container_name: e2e-backend
+    ports:
+      - "3001:3000"
+    environment:
+      # Real "production" mode, not a stand-in — MinIO above is what makes
+      # this possible without a real Cloudflare R2 bucket (see comment on
+      # the `minio` service). This also un-inerts NODE_ENV==="production"
+      # -gated behavior elsewhere, notably the strict 10-req/15min login
+      # rate limiter (rate-limit.middleware.ts) — Fase 7.2's rate-limiting
+      # test can run against this stack now instead of needing staging.
+      NODE_ENV: production
+      PORT: 3000
+      DATABASE_URL: postgresql://e2e:e2e@postgres-test:5432/rowing_e2e
+      DATABASE_URL_DIRECT: postgresql://e2e:e2e@postgres-test:5432/rowing_e2e
+      CORS_ORIGIN: http://localhost:5174
+      FRONTEND_URL: http://localhost:5174
+      OCR_SERVICE_URL: http://ocr-stub:8001
+      LOG_LEVEL: warn
+      RATE_LIMIT_WINDOW_MS: 900000
+      RATE_LIMIT_MAX_REQUESTS: 1000
+      # The real production login limiter (10/15min/IP) would block the
+      # login.spec.ts suite, which logs in as all 11 fixture roles from a
+      # single IP in one run. Overridden here only — see env.config.ts.
+      LOGIN_RATE_LIMIT_MAX_OVERRIDE: "1000"
+      CLOUDFLARE_R2_ACCOUNT_ID: e2e
+      CLOUDFLARE_R2_ACCESS_KEY_ID: e2eminioadmin
+      CLOUDFLARE_R2_SECRET_ACCESS_KEY: e2eminioadmin
+      CLOUDFLARE_R2_BUCKET_NAME: fedururemo-e2e
+      CLOUDFLARE_R2_PUBLIC_URL: http://localhost:9000/fedururemo-e2e
+      CLOUDFLARE_R2_ENDPOINT_OVERRIDE: http://minio:9000
+      CLOUDFLARE_R2_FORCE_PATH_STYLE: "true"
+      JWT_ALGORITHM: RS256
+      JWT_ACCESS_TOKEN_EXPIRES_IN: 15m
+      JWT_REFRESH_TOKEN_EXPIRES_IN: 7d
+      JWT_ACCESS_PRIVATE_KEY: |
+        -----BEGIN PRIVATE KEY-----
+        MIIEuwIBADANBgkqhkiG9w0BAQEFAASCBKUwggShAgEAAoIBAQDeim+ckX/LQUoT
+        vqHBsj/Vw91A2WGy0+aP1Fik7s2cBGRGJpq7AV9KA5vB5ka574qwHf8DQLJ3vcxa
+        vxn2hxEFA6cLkIGV7LnKyn7iqJyrlAkb5letTRL1k0XxGLZqptdImxvjwkTkNKaK
+        MzH1+JuetP8neTBw36p8Pn7O26Lm+a0k/iWf9VoDzyZtqi0RI2vSdX5caABTq4nb
+        PEeBgFXmg26MzawB2zzfeU0B903YtAVPEsl2SW6uDhiKNFLwzgBIMFGpTn1xp2iM
+        baUzrP235CXafG2NsoiFXma3JRJsBFD9ecFodxvMqs6VWoNP8fD4zneKayMP+Uqa
+        Hcnm/yiBAgMBAAECgf9cbfs1eGkvropp8P+WR8ajrpoy2RbvA3v7uSKoPlc/ucM8
+        L8SMb2F4iE8lFdPCXm+n/o1weGqnuTkrZ7wM3MSA5Kd48iggcRYp2DkjQwzvZqjx
+        4ZYA8MYzIVwnazA409sO2P2Yd5PNhOC2/dR+aSeZn2tqpbcs6nkQ6ZQZrrfWXo70
+        fZfWpLnQBrc0y3cbhwBefisHVuVsH3JyUpYlBPWJhypytTB3olWIIaNKU47UPFHL
+        qtDmD1brFkgYB4w4QJjYScUMqhdq+5NJ55wrT6HOe4TYrl1WitF+Cb9cFGUDNOYc
+        8nb1OM/2yRIfGnPdw1xCRnkCniGgwdXymUD1TgECgYEA8iXVVWwtnFj7MLMpzS2D
+        +PAJKRhmpax/lT0skN2bj4oju7jJYKtqxdXjeijKsl40yMfORGlR922dj+Hpjsg5
+        y+bXT0eM2BklyqB2JHdhicnJ4CsjO7jUsaS4+Dvp84lDrSJvBfK86E5Cjwl7rPqQ
+        5JxCpnqGUWWlmsQmCmqaDQECgYEA60V3BVszNxh7yYfD8J7VsmjZ3c9UVdjSNYgo
+        PKTq9T+zg8lMdL+1rHiu4jKH+VdBcj+/V3w+GxlXfKw1NT6KfQ14LuZ8WaU4w619
+        yNyv2TggCMb7FuzUIhu3QAEVQ+gweFmp01nkIrgkrN3gFp9/H/IiAAA28JlT9l47
+        lHZ/m4ECgYASULRDIsyMX9qYA2UtBL1PrfAzcIoLC/IWeqsNRgXHJJ6xSzfIHQ8V
+        aaksCzvRo/iAG0TJveGaQmtBf8fnqdNdTdeJQpMvoS9PlTV6aqExB9dCImEm2kMU
+        MK5g8D8w0XgR92HIZGTPeWPlZ8U3/zfIYt1TtD7Gl1agTyfFb+y5AQKBgDx7jy2B
+        VJlFYg1dKbIiIy3KZrfvJO8s3l2Es1Nj0kNaLPwkM9OPtVSxccQU2X/wPpLwcHA9
+        MHom+abDXqpheZjMbakg97bUEtO7Nir9EPf2xcV74fDy0VYzadi6bo0Wk99crZv3
+        7/48+LC4GXO3bSb5SGRXqcgQotUjRI3WKNgBAoGBAJZ6vlaDA6of+1ItieBlB4yW
+        QgS+0DD0JBqo5n8fzDpRjUS56kh9vIXcDDv5k3w877Ws3yEZXA/LW7DsbM8sfIiX
+        +511FMO4dGvkvuc4QJSbMl9mPiA37HPsmaCtanPrvc/RsrxFgr+LlPGA/DBQa/YO
+        Zy3AobeOSCOdxwoNj7jw
+        -----END PRIVATE KEY-----
+      JWT_ACCESS_PUBLIC_KEY: |
+        -----BEGIN PUBLIC KEY-----
+        MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA3opvnJF/y0FKE76hwbI/
+        1cPdQNlhstPmj9RYpO7NnARkRiaauwFfSgObweZGue+KsB3/A0Cyd73MWr8Z9ocR
+        BQOnC5CBley5ysp+4qicq5QJG+ZXrU0S9ZNF8Ri2aqbXSJsb48JE5DSmijMx9fib
+        nrT/J3kwcN+qfD5+ztui5vmtJP4ln/VaA88mbaotESNr0nV+XGgAU6uJ2zxHgYBV
+        5oNujM2sAds833lNAfdN2LQFTxLJdklurg4YijRS8M4ASDBRqU59cadojG2lM6z9
+        t+Ql2nxtjbKIhV5mtyUSbARQ/XnBaHcbzKrOlVqDT/Hw+M53imsjD/lKmh3J5v8o
+        gQIDAQAB
+        -----END PUBLIC KEY-----
+      JWT_REFRESH_PRIVATE_KEY: |
+        -----BEGIN PRIVATE KEY-----
+        MIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQDDnAnS+2SQsnV1
+        K5o5wzQDuHIe89d9jQRxpEf18LdeWTUNVP8oWXzfYWh1eaurdvj23Cqhp0FghTAL
+        d0ZIFmdG3O0tSeudfM8PpsHGBISeODJ/vAqDGDa5kIF1hoh2dIBI23NcgyXYhx+X
+        Q9Lze8nAQEnAyoIzg79J0KWhxeeQRpOvUKPLi9Ul3S1DaGh60tMpz80CAb6aJqqE
+        gYUPQtFHBaFqyL8QCTzbxdk7vEuoPhleJyUoVRHF9Lhv38w1LJF69+vIyf7y3YUl
+        I7mO60f7GyScbx69Pps//eYRGTxUQsYtV5UKTmCT+7gqHQsS/w6MNf1wIP6lGcRP
+        ykKa08c3AgMBAAECggEAAkeCMcwuICWENYj8M2ob5A3f0+PW11FaWOdSKK0qZdYM
+        8TUpV/4Fn3tnbTRYFMJpJO9B1pUNWk49q2neDsmmtcOt8St9rF3KR+Noj0x5gyJ3
+        1tczxCf3E0h6HwrMnPIUle9rXmDvgvYSydTHfiuAxABmcPGrJ2XZ8nE/oi1H2n2C
+        0iZO1zm6NOb+ANG8DnZB9ljpcfv8VjpTVH4y4GGF3jO+frCvQCMJu2iyQdEAVZOv
+        ncbEdZhxumwcqhUZ8xojRrGraRazR0vOEt9Ggxyr6Dd5x9kBO+mHuW8qvFl2kPHF
+        HTDOqu2ldEbrXZno+UTpDntSG2PDCXPjTDyByWsW0QKBgQDt036s04Jgke/RWI6z
+        R9H3OL+jsa2jkXWaU0bhnDKK/l4+Y0LDAr4XT5mcrf+IJbKkw9uw7rzxNIjxzNda
+        jzNl2o6k/B6rk9mv0AE31DEX8Q6kBggYMpB7/CIzr10l+ifHazpwXmdUaU4PVqWk
+        vo3WRrW9Tr/3WG2/Uphrs6cl2QKBgQDSjqzep2R93WLxYQyXhZY6KRZ9CwQaSrt9
+        3yUsBuAkaBJQOROUwDT0Oz1x5/AdRKITAk8slrUST1LUF6hyeVvvV6+G6JFHTeP5
+        iIfW273ByatJucjiQOXkKmrkfgznnn2IGhSyyKBpDLfWBMOGyVziqGCnXW2fwT5f
+        dUVGVZ3bjwKBgFpjY2W0DX0+efMKwVGKHlbjjpJcWS4tfpDkza+5ecwx2QfFGf6b
+        8DtT2YIe71uDWF4ewkSAt/bEjLe5rq+QdWxkoIo7+DwluTqEx7G8R9xdlb7pO/JW
+        ZWt57FXQdIqWhL/aFR/YAVWnoC9cMyBl++pQfYoxf+w2A6APeDaW1RQhAoGBAION
+        9z5qEeR+FRrBSy/EnFccYtufrWGL/dcoO75lUVgN2htbfft7l9pcxQhNJP30ats7
+        nyI5y0p0W0j+uxVC9Aj3nUjKODL33I+FGXJJ+yaADVBUDsomSDylsAGxK/jvUnld
+        6j7GEUtxUc8bTNsDJtDK6RDI0/xzrbfQuoa2aZnLAoGAW6M8ruadSryKcqJxX1Si
+        qNZQOsO+xuxXE41ypwtjiSktPS6uZalsAoz2f5UBWcHJbHG2UfrwoI+Hi2KNiwvP
+        unNRhffSc5a1mcRdTWdeeaWpkvZCAePzuribyxB5IgmBKzXnKYL2HksxnxryuzJh
+        Rvqm2jowEVAMtlF1DRUMEoo=
+        -----END PRIVATE KEY-----
+      JWT_REFRESH_PUBLIC_KEY: |
+        -----BEGIN PUBLIC KEY-----
+        MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAw5wJ0vtkkLJ1dSuaOcM0
+        A7hyHvPXfY0EcaRH9fC3Xlk1DVT/KFl832FodXmrq3b49twqoadBYIUwC3dGSBZn
+        RtztLUnrnXzPD6bBxgSEnjgyf7wKgxg2uZCBdYaIdnSASNtzXIMl2Icfl0PS83vJ
+        wEBJwMqCM4O/SdClocXnkEaTr1Cjy4vVJd0tQ2hoetLTKc/NAgG+miaqhIGFD0LR
+        RwWhasi/EAk828XZO7xLqD4ZXiclKFURxfS4b9/MNSyRevfryMn+8t2FJSO5jutH
+        +xsknG8evT6bP/3mERk8VELGLVeVCk5gk/u4Kh0LEv8OjDX9cCD+pRnET8pCmtPH
+        NwIDAQAB
+        -----END PUBLIC KEY-----
+    depends_on:
+      postgres-test:
+        condition: service_healthy
+      ocr-stub:
+        condition: service_started
+      minio-init:
+        condition: service_completed_successfully
+    networks:
+      - e2e-network
+
+  frontend:
+    build:
+      context: ../RowingFederation-Frontend
+      dockerfile: Dockerfile
+      args:
+        NEXT_PUBLIC_API_URL: http://localhost:3001
+        NEXT_PUBLIC_APP_NAME: "FUR - Sistema Agazzi (E2E)"
+        NEXT_PUBLIC_APP_URL: http://localhost:5174
+    container_name: e2e-frontend
+    ports:
+      - "5174:5173"
+    depends_on:
+      - backend
+    networks:
+      - e2e-network
+
+networks:
+  e2e-network:
+    driver: bridge

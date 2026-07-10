@@ -1,0 +1,9 @@
+node_modules/
+test-results/
+playwright-report/
+playwright/.cache/
+fixtures/auth-states/*.json
+fixtures/credentials.json
+.env
+.env.local
+*.log

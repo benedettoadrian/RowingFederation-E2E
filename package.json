@@ -1,0 +1,27 @@
+{
+  "name": "rowing-federation-e2e",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Cross-repo E2E integration suite (frontend + backend + DB) for Sistema Agazzi",
+  "type": "module",
+  "scripts": {
+    "test:e2e": "playwright test",
+    "test:e2e:tier0": "playwright test --grep @tier0",
+    "test:e2e:tier1": "playwright test --grep @tier1",
+    "test:e2e:ui": "playwright test --ui",
+    "stack:up": "docker compose -f docker-compose.e2e.yml up -d --build",
+    "stack:down": "docker compose -f docker-compose.e2e.yml down -v",
+    "stack:logs": "docker compose -f docker-compose.e2e.yml logs -f",
+    "seed": "tsx fixtures/seed.ts"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.48.0",
+    "@types/bcryptjs": "^2.4.6",
+    "@types/node": "^22.10.5",
+    "@types/pg": "^8.11.10",
+    "bcryptjs": "^2.4.3",
+    "pg": "^8.13.1",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2"
+  }
+}
