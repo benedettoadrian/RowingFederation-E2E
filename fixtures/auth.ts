@@ -1,6 +1,7 @@
 import type { Page } from "@playwright/test";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
+import { api } from "./lib/api.js";
 
 export type RoleKey =
   | "ADMIN"
@@ -49,4 +50,20 @@ export async function loginAs(page: Page, role: RoleKey): Promise<void> {
   await page.getByTestId("login-password").fill(password);
   await page.getByTestId("login-submit").click();
   await page.waitForURL(/\/(es|en|pt)\/dashboard/, { timeout: 10_000 });
+}
+
+/**
+ * Logs in via the real API (no browser) and returns the access token. For
+ * tests asserting a backend authorization boundary directly rather than a
+ * UI flow — login itself is already covered continuously by loginAs()
+ * above, so re-driving the login form here would just be redundant.
+ */
+export async function apiLoginAs(role: RoleKey): Promise<string> {
+  const { credentials } = loadFixtures();
+  const { email, password } = credentials[role];
+  const login = await api.post<{ data: { accessToken: string } }>("/auth/login", {
+    email,
+    password,
+  });
+  return login.data.accessToken;
 }

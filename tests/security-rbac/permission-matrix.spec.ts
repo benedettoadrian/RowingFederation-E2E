@@ -1,5 +1,5 @@
 import { test, expect } from "@playwright/test";
-import { loadFixtures } from "../../fixtures/auth.js";
+import { apiLoginAs, loadFixtures } from "../../fixtures/auth.js";
 import { api, ApiError } from "../../fixtures/lib/api.js";
 
 /**
@@ -22,12 +22,8 @@ import { api, ApiError } from "../../fixtures/lib/api.js";
  * eligibility override, both ADMIN/reviewer-only actions.
  */
 test("REFEREE cannot approve/reject an athlete card @tier0", async () => {
-  const { credentials, athletes } = loadFixtures();
-  const login = await api.post<{ data: { accessToken: string } }>("/auth/login", {
-    email: credentials.REFEREE.email,
-    password: credentials.REFEREE.password,
-  });
-  const token = login.data.accessToken;
+  const { athletes } = loadFixtures();
+  const token = await apiLoginAs("REFEREE");
 
   await expect(
     api.put(
@@ -39,12 +35,8 @@ test("REFEREE cannot approve/reject an athlete card @tier0", async () => {
 });
 
 test("REFEREE cannot grant a temporary eligibility override @tier0", async () => {
-  const { credentials, athletes } = loadFixtures();
-  const login = await api.post<{ data: { accessToken: string } }>("/auth/login", {
-    email: credentials.REFEREE.email,
-    password: credentials.REFEREE.password,
-  });
-  const token = login.data.accessToken;
+  const { athletes } = loadFixtures();
+  const token = await apiLoginAs("REFEREE");
 
   await expect(
     api.patch(`/athletes/${athletes.club1}/temporary-activate`, {}, token)
