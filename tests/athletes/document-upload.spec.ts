@@ -43,6 +43,11 @@ function pngFormData(documentNumber: string, emissionDate: string): FormData {
   form.append("front", new Blob([bytes], { type: "image/png" }), "front.png");
   form.append("back", new Blob([bytes], { type: "image/png" }), "back.png");
   form.append("emissionDate", emissionDate);
+  // Backend requires expirationDate for athletes under 60 (server-side
+  // mirror of the Frontend's age-based requirement — see
+  // upload-identity-doc.use-case.ts). createAthlete below always creates a
+  // 2000-01-01 (under-60) athlete, so this must always be sent.
+  form.append("expirationDate", "2033-01-01");
   return form;
 }
 

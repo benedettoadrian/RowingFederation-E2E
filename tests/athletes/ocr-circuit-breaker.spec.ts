@@ -50,6 +50,9 @@ async function createAthleteAndUpload(
   form.append("front", new Blob([bytes], { type: "image/png" }), "front.png");
   form.append("back", new Blob([bytes], { type: "image/png" }), "back.png");
   form.append("emissionDate", "2020-01-01");
+  // Backend requires expirationDate for athletes under 60 (this fixture's
+  // athlete is always 2000-01-01) — see upload-identity-doc.use-case.ts.
+  form.append("expirationDate", "2033-01-01");
   await api.postMultipart(`/athletes/${athlete.data.id}/requirements/identity-doc`, form, adminToken);
 
   return athlete.data.id;
