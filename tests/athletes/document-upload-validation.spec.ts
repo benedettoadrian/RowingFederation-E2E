@@ -8,16 +8,19 @@ import { api, TINY_PNG_BASE64, ApiError } from "../../fixtures/lib/api.js";
  * env.MAX_IMAGE_SIZE (5MB default). fileFilter rejects non-JPEG/PNG
  * mimetypes.
  *
- * KNOWN GAP found while writing this: neither the bad-mimetype nor the
- * oversized-file case ever reach a clean 400. This route never wires
- * handleMulterError (that helper exists in file-upload.middleware.ts but
- * is unused anywhere in the codebase) — both a fileFilter Error and a
- * multer.MulterError fall through to globalErrorHandler, which doesn't
- * recognize either error type and wraps them as InternalServerError:
- * **HTTP 500**, not 400. Pinned as-is per the user's 2026-07-10 decision to
- * document rather than fix production code in this pass — do not "fix"
- * this test to expect 400 without first fixing
- * athlete-requirements.routes.ts's multer wiring and getting sign-off.
+ * KNOWN GAP (bad mimetype only, still open): this route's fileFilter
+ * rejects with a plain `new Error(...)`, not a DomainError, so it isn't
+ * recognized by globalErrorHandler and falls through as HTTP 500 instead of
+ * a clean 400. Pinned as-is — fixing it means teaching
+ * athlete-requirements.routes.ts's 3 inline multer fileFilters to throw
+ * InvalidFileTypeError instead of a plain Error, out of scope here.
+ *
+ * The oversized-file case (T18/BE-5, fixed 2026-07-12) is different: that's
+ * multer's own `limits.fileSize` enforcement, which raises a real
+ * `multer.MulterError`. `handleMulterError` (previously dead code, now
+ * wired app-wide in express.app.ts) catches it and maps it to
+ * DocumentTooLargeError, a real DomainError — so this now gets the clean
+ * 400 contract like any other endpoint's oversized upload.
  */
 
 async function createAthlete(adminToken: string, clubId: string): Promise<string> {
@@ -57,7 +60,7 @@ test("KNOWN GAP: uploading a .txt file as an identity document returns 500, not 
   ).rejects.toMatchObject({ status: 500 } satisfies Partial<ApiError>);
 });
 
-test("KNOWN GAP: an oversized file returns 500, not a clean 400 @tier1", async () => {
+test("an oversized file returns a clean 400 with the DOCUMENT_TOO_LARGE contract (T18/BE-5) @tier1", async () => {
   const adminToken = await apiLoginAs("ADMIN");
   const { clubs } = loadFixtures();
   const athleteId = await createAthlete(adminToken, clubs.club1);
@@ -78,7 +81,14 @@ test("KNOWN GAP: an oversized file returns 500, not a clean 400 @tier1", async (
   );
   form.append("emissionDate", "2020-01-01");
 
-  await expect(
-    api.postMultipart(`/athletes/${athleteId}/requirements/identity-doc`, form, adminToken)
-  ).rejects.toMatchObject({ status: 500 } satisfies Partial<ApiError>);
+  try {
+    await api.postMultipart(`/athletes/${athleteId}/requirements/identity-doc`, form, adminToken);
+    throw new Error("expected the request to be rejected as too large");
+  } catch (err) {
+    const apiError = err as ApiError;
+    expect(apiError.status).toBe(400);
+    const body = apiError.body as { error: { code: string; details: { sizeInBytes: number } } };
+    expect(body.error.code).toBe("DOCUMENT_TOO_LARGE");
+    expect(body.error.details.sizeInBytes).toBeGreaterThan(0);
+  }
 });
