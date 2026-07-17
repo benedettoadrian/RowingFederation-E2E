@@ -377,9 +377,10 @@ test("World Rowing method end to end through the wizard UI, including per-rower 
   // crews render as marked dots on top of it, and both loaded boats are
   // listed by name underneath — not just the couple of crews connected by a
   // straight line (the old, pre-curve-endpoint version of this chart).
+  const chartCrewList = page.getByTestId("wr-curve-crew-list");
   await expect(page.getByText("Botes cargados en esta carrera")).toBeVisible();
-  await expect(page.getByText(/WRA.*edad 51/)).toBeVisible();
-  await expect(page.getByText(/WRB.*edad 61/)).toBeVisible();
+  await expect(chartCrewList.getByText(/WRA.*edad 51/)).toBeVisible();
+  await expect(chartCrewList.getByText(/WRB.*edad 61/)).toBeVisible();
   await expect(page.locator(".recharts-scatter-symbol")).toHaveCount(2);
   await expect(page.locator(".recharts-line")).toHaveCount(1);
 });

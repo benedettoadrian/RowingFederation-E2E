@@ -1,6 +1,6 @@
 import { test, expect } from "@playwright/test";
 import { randomUUID } from "node:crypto";
-import { apiLoginAs } from "../../fixtures/auth.js";
+import { apiLoginAs, loginAs as loginAsUi } from "../../fixtures/auth.js";
 import { api, ApiError } from "../../fixtures/lib/api.js";
 import {
   setupInscriptionFixtures,
@@ -262,13 +262,13 @@ test("standalone date (no championship) with its own World Rowing method calcula
   }>(`/competitions/crew-entries?competitionDateId=${fx.competitionDateId}&clubId=${fx.club1Id}`, club1Token);
   const result = list.data.find((e) => e.id === entry1.data.id)?.result;
 
-  // M 1x, age 27 -> handicap 0 relative to the fixed World Rowing base
-  // (M 8+, 27) is NOT expected here — only M 8+/27 is exactly 0. This crew
-  // (M 1x/27) has the official ~44.29s handicap from the reference table,
-  // confirming World Rowing (not FUR, which would give 0 for the youngest
-  // crew in any race regardless of class) actually ran.
+  // Reference is this date's own gender+class at age 27 (Sistema Agazzi
+  // design — see fur-fisa-handicap-full-plan notes), not a fixed cross-class
+  // constant. This crew is M 1x at exactly age 27 — its own class's
+  // reference age — so its handicap is ~0 by construction, while still
+  // confirming World Rowing (not FUR) actually ran via handicapMethod.
   expect(result?.handicapMethod).toBe("WORLD_ROWING");
-  expect(Math.abs(result!.handicapCentiseconds! - 4429)).toBeLessThanOrEqual(5);
+  expect(Math.abs(result!.handicapCentiseconds!)).toBeLessThanOrEqual(5);
 });
 
 test("rejects a Mixed crew that isn't 50/50 for a Master event under the World Rowing method @tier0", async () => {
@@ -389,4 +389,86 @@ test("rejects a Mixed crew that isn't 50/50 for a Master event under the World R
       delegateToken
     )
   ).rejects.toMatchObject({ status: 400 } satisfies Partial<ApiError>);
+});
+
+test("results sheet shows the didactic World Rowing detail with real numbers @tier1", async ({ page }) => {
+  const adminToken = await apiLoginAs("ADMIN");
+  const regattaToken = await apiLoginAs("REGATTA_COMMISSION");
+
+  const daysFromNow = 30 + Math.floor(Math.random() * 3000);
+  const competitionDate = new Date();
+  competitionDate.setUTCDate(competitionDate.getUTCDate() + daysFromNow);
+  competitionDate.setUTCHours(0, 0, 0, 0);
+  const competitionYear = competitionDate.getUTCFullYear();
+  const inscriptionOpenAt = new Date();
+  inscriptionOpenAt.setUTCDate(inscriptionOpenAt.getUTCDate() + 1);
+  const inscriptionCloseAt = new Date(competitionDate);
+  inscriptionCloseAt.setUTCDate(inscriptionCloseAt.getUTCDate() - 1);
+  inscriptionCloseAt.setUTCHours(23, 0, 0, 0);
+
+  const fx = await setupInscriptionFixtures(adminToken, {
+    isMaster: true,
+    dateOverrides: {
+      date: competitionDate.toISOString(),
+      inscriptionOpenAt: inscriptionOpenAt.toISOString(),
+      inscriptionCloseAt: inscriptionCloseAt.toISOString(),
+      handicapMethod: "WORLD_ROWING",
+    },
+    club1AthleteBirthdate: `${competitionYear - 50}-01-01`,
+  });
+
+  const club1Token = await loginAs(fx.club1.delegateEmail, fx.club1.delegatePassword);
+  const entry1 = await api.post<{ data: { id: string } }>(
+    "/competitions/crew-entries",
+    {
+      competitionDateId: fx.competitionDateId,
+      eventId: fx.eventId,
+      clubId: fx.club1Id,
+      members: [{ athleteId: fx.club1.athleteId, role: "ROWER" }],
+    },
+    club1Token
+  );
+
+  await api.put(
+    `/competitions/competition-dates/${fx.competitionDateId}`,
+    { refereePresidentId: fx.referee.userId },
+    regattaToken
+  );
+  await api.post(
+    `/competitions/competition-dates/${fx.competitionDateId}/sorteo/confirm`,
+    { assignments: [{ entryId: entry1.data.id, series: "Final", lane: 1 }] },
+    regattaToken
+  );
+  await api.put(`/competitions/crew-entries/${entry1.data.id}/result`, { resultCode: "FINISHED", time: "4:00.00" }, regattaToken);
+  await api.post(
+    "/competitions/crew-entries/calculate-master-handicap",
+    { competitionDateId: fx.competitionDateId, eventId: fx.eventId, series: "Final" },
+    regattaToken
+  );
+
+  // The results page only renders for IN_COMPETITION/FINAL_RESULTS dates.
+  await api.patch(`/competitions/competition-dates/${fx.competitionDateId}/status`, { status: "IN_REVIEW" }, regattaToken);
+  await api.patch(`/competitions/competition-dates/${fx.competitionDateId}/status`, { status: "CLOSED" }, regattaToken);
+  await api.patch(`/competitions/competition-dates/${fx.competitionDateId}/status`, { status: "IN_COMPETITION" }, regattaToken);
+
+  await loginAsUi(page, "REGATTA_COMMISSION");
+  await page.goto(`/es/competitions/dates/${fx.competitionDateId}/results`);
+
+  await page.getByRole("button", { name: "Cargar resultados" }).first().click();
+
+  // The always-visible config bar above the table, inside the sheet.
+  await expect(page.getByText("Sistema: World Rowing (FISA)")).toBeVisible();
+  await expect(page.getByText(/Clase de bote: Masculino 1x/)).toBeVisible();
+
+  await page.getByRole("button", { name: "Ver detalle del cálculo" }).click();
+
+  // Real numbers, not just section headings — proves the didactic panel is
+  // actually wired to this crew's own computed result, not placeholder text.
+  await expect(page.getByText("Modelo World Rowing utilizado")).toBeVisible();
+  await expect(page.getByText("Masculino 1x").first()).toBeVisible();
+  await expect(page.getByText(/3:46\.08 \(tiempo de referencia\)/)).toBeVisible();
+
+  await page.getByRole("button", { name: "Ver coeficientes del modelo" }).first().click();
+  await expect(page.getByText(/a=541\.875264, b=0\.060336, c=223315\.25/)).toBeVisible();
+  await expect(page.getByText("Versión: WR_2026_03")).toBeVisible();
 });
