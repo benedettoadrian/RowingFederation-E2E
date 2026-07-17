@@ -143,6 +143,13 @@ export async function setupInscriptionFixtures(
     scoresInCircuit?: boolean;
     advanceToClosed?: boolean;
     dateOverrides?: Record<string, unknown>;
+    // Master handicap tests need isMaster: true on the age category, plus
+    // control over each club's athlete birthdate (the default "2000-01-01"
+    // for both makes every crew the same age — useless for handicap math,
+    // which only does anything interesting when ages differ).
+    isMaster?: boolean;
+    club1AthleteBirthdate?: string;
+    club2AthleteBirthdate?: string;
   } = {}
 ) {
   const suffix = randomUUID().slice(0, 8);
@@ -200,9 +207,10 @@ export async function setupInscriptionFixtures(
   const ageCategory = await api.post<{ data: { id: string } }>(
     "/competitions/age-categories",
     {
-      name: `SENIOR-${randomUUID().replace(/-/g, "").slice(0, 8).toUpperCase()}`,
-      minAge: 19,
+      name: `${opts.isMaster ? "MASTER" : "SENIOR"}-${randomUUID().replace(/-/g, "").slice(0, 8).toUpperCase()}`,
+      minAge: opts.isMaster ? 27 : 19,
       maxAge: null,
+      ...(opts.isMaster && { isMaster: true }),
     },
     regattaToken
   );
@@ -261,20 +269,23 @@ export async function setupInscriptionFixtures(
   );
 
   const dateFixtures = { clubId: club1Id, pistaId: pista.data.id, programId: program.data.id };
+  const datePayload = competitionDatePayload(
+    dateFixtures,
+    // CompetitionDate.date is unique DB-wide. This fixture is now called
+    // from ~20 tests across 5+ files (inscriptions, sorteo, results,
+    // standings) — 5000 days of range collided under that volume
+    // (birthday paradox). Widened by 100x. This also means the resulting
+    // year can be centuries out — Master handicap tests need the real
+    // value (see `date` in the return below) instead of assuming "now".
+    30 + Math.floor(Math.random() * 500_000),
+    {
+      ...(opts.advanceToClosed && { refereePresidentId: referee.data.id }),
+      ...opts.dateOverrides,
+    }
+  );
   const created = await api.post<{ data: { id: string } }>(
     "/competitions/competition-dates",
-    competitionDatePayload(
-      dateFixtures,
-      // CompetitionDate.date is unique DB-wide. This fixture is now called
-      // from ~20 tests across 5+ files (inscriptions, sorteo, results,
-      // standings) — 5000 days of range collided under that volume
-      // (birthday paradox). Widened by 100x.
-      30 + Math.floor(Math.random() * 500_000),
-      {
-        ...(opts.advanceToClosed && { refereePresidentId: referee.data.id }),
-        ...opts.dateOverrides,
-      }
-    ),
+    datePayload,
     regattaToken
   );
   const competitionDateId = created.data.id;
@@ -299,7 +310,7 @@ export async function setupInscriptionFixtures(
     );
   }
 
-  async function createDelegateAndAthlete(clubId: string, label: string) {
+  async function createDelegateAndAthlete(clubId: string, label: string, athleteBirthdate?: string) {
     const email = `delegate-${label}@e2e.test`;
     const delegateCreated = await api.post<{ data: { id: string } }>(
       "/users",
@@ -322,7 +333,7 @@ export async function setupInscriptionFixtures(
         firstName: "Athlete",
         firstSurname: label,
         gender: "MALE",
-        birthdate: "2000-01-01",
+        birthdate: athleteBirthdate ?? "2000-01-01",
         nationality: "Uruguay",
         documentType: "PASSPORT",
         documentNumber: `INS${label}`,
@@ -340,13 +351,18 @@ export async function setupInscriptionFixtures(
     };
   }
 
-  const club1Fixtures = await createDelegateAndAthlete(club1Id, `${suffix}A`);
-  const club2Fixtures = await createDelegateAndAthlete(club2Id, `${suffix}B`);
+  const club1Fixtures = await createDelegateAndAthlete(club1Id, `${suffix}A`, opts.club1AthleteBirthdate);
+  const club2Fixtures = await createDelegateAndAthlete(club2Id, `${suffix}B`, opts.club2AthleteBirthdate);
 
   return {
     club1Id,
     club2Id,
     competitionDateId,
+    // The real date used (see the widened-range comment above the payload
+    // build) — Master handicap FISA-age math is relative to this date's
+    // year, not "now", so tests can't hardcode an expected age from today's
+    // date.
+    date: datePayload.date,
     eventId: event.data.id,
     eventId2: event2.data.id,
     boatAthleteCount: 1,

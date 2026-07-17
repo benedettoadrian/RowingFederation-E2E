@@ -114,18 +114,47 @@ test("CLUB_DELEGATE cannot set a result @tier0", async () => {
   ).rejects.toMatchObject({ status: 403 } satisfies Partial<ApiError>);
 });
 
-test("FINISHED result requires a position @tier0", async () => {
+// Was "FINISHED result requires a position @tier0" until the Master handicap
+// feature (2026-07-16): Masters results are saved progressively — net time
+// first, position filled in later by calculate-master-handicap — so
+// SetResultSchema no longer requires position for FINISHED at save time.
+// The gate moved to ConfirmBlockUseCase instead. This test documents the new
+// behavior end to end (was a straight 400 before, see git history).
+test("FINISHED result no longer requires a position at save time — the gate moved to confirm-block @tier0", async () => {
   const adminToken = await apiLoginAs("ADMIN");
+  const regattaToken = await apiLoginAs("REGATTA_COMMISSION");
   const fx = await setupInscriptionFixtures(adminToken);
   const club1Token = await loginAs(fx.club1.delegateEmail, fx.club1.delegatePassword);
-  const regattaToken = await apiLoginAs("REGATTA_COMMISSION");
 
   const entry = await createEntry(fx, club1Token);
 
+  // Needs a series assigned (like sorteo would) for confirm-block to find it at all.
+  await api.put(
+    `/competitions/competition-dates/${fx.competitionDateId}`,
+    { refereePresidentId: fx.referee.userId },
+    regattaToken
+  );
+  await api.post(
+    `/competitions/competition-dates/${fx.competitionDateId}/sorteo/confirm`,
+    { assignments: [{ entryId: entry.data.id, series: "Final", lane: 1 }] },
+    regattaToken
+  );
+
+  // Saving FINISHED with no position now succeeds...
+  await api.put(
+    `/competitions/crew-entries/${entry.data.id}/result`,
+    { resultCode: "FINISHED", time: "3:45.20" },
+    regattaToken
+  );
+  const result = await getResult(fx, entry.data.id, club1Token);
+  expect(result?.resultCode).toBe("FINISHED");
+  expect(result?.position).toBeNull();
+
+  // ...but confirm-block now refuses to confirm while it's still missing one.
   await expect(
-    api.put(
-      `/competitions/crew-entries/${entry.data.id}/result`,
-      { resultCode: "FINISHED" },
+    api.post(
+      "/competitions/crew-entries/confirm-block",
+      { competitionDateId: fx.competitionDateId, eventId: fx.eventId, series: "Final" },
       regattaToken
     )
   ).rejects.toMatchObject({ status: 400 } satisfies Partial<ApiError>);
