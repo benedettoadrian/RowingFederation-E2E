@@ -15,7 +15,8 @@ export type RoleKey =
   | "REFEREE"
   | "CLUB_DELEGATE"
   | "CLUB_DELEGATE_2"
-  | "DELEGATE";
+  | "DELEGATE"
+  | "COMMUNICATIONS";
 
 interface Credentials {
   credentials: Record<RoleKey, { email: string; password: string; userId?: string }>;

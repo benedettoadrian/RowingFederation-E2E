@@ -16,7 +16,14 @@ function birthdateForAge(age: number): string {
 }
 
 test("any authenticated role can calculate — no role restriction on this tool @tier0", async () => {
-  const roles: RoleKey[] = ["ADMIN", "REGATTA_COMMISSION", "REFEREE", "CLUB_DELEGATE", "PRESIDENT"];
+  const roles: RoleKey[] = [
+    "ADMIN",
+    "REGATTA_COMMISSION",
+    "REFEREE",
+    "CLUB_DELEGATE",
+    "PRESIDENT",
+    "COMMUNICATIONS",
+  ];
 
   for (const role of roles) {
     const token = await apiLoginAs(role);

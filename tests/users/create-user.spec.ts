@@ -13,7 +13,7 @@ import { FIXTURE_PASSWORD } from "../../fixtures/lib/config.js";
  *
  * Director-role (PRESIDENT/VICE_PRESIDENT/...) and ADMIN/FEDERATION_ADMIN
  * golden-path creation is NOT re-tested here in isolation: fixtures/seed.ts
- * already creates one of every one of the 11 roles through this same real
+ * already creates one of every one of the 12 roles through this same real
  * endpoint, and the whole suite depends on that succeeding — a regression
  * there fails every test, not silently. This file focuses on the 4
  * business-rule boundaries, which seeding alone doesn't exercise, plus a

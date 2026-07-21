@@ -45,7 +45,8 @@ type RoleKey =
   | "REFEREE"
   | "CLUB_DELEGATE"
   | "CLUB_DELEGATE_2"
-  | "DELEGATE";
+  | "DELEGATE"
+  | "COMMUNICATIONS";
 
 /** RoleKey -> real backend UserRole sent in the create-user payload. Only
  * differs for CLUB_DELEGATE_2, which is a second fixture identity for the
@@ -78,6 +79,7 @@ const credentials: Record<RoleKey, { email: string; password: string; userId?: s
   CLUB_DELEGATE: { email: "club-delegate-1@e2e.test", password: FIXTURE_PASSWORD },
   CLUB_DELEGATE_2: { email: "club-delegate-2@e2e.test", password: FIXTURE_PASSWORD },
   DELEGATE: { email: "delegate@e2e.test", password: FIXTURE_PASSWORD },
+  COMMUNICATIONS: { email: "communications@e2e.test", password: FIXTURE_PASSWORD },
 };
 
 async function main() {
@@ -108,7 +110,7 @@ async function main() {
   );
   console.log(`  club1=${club1.data.id} club2=${club2.data.id}`);
 
-  console.log("Creating 11 remaining role fixture users...");
+  console.log("Creating 12 remaining role fixture users...");
   for (const role of Object.keys(credentials) as RoleKey[]) {
     if (role === "ADMIN") continue; // already the bootstrap admin
 
