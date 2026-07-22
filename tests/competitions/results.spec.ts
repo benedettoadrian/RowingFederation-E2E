@@ -180,3 +180,148 @@ test("a result can be set while the date is still INSCRIPTION_OPEN, not just IN_
   const result = await getResult(fx, entry.data.id, club1Token);
   expect(result?.resultCode).toBe("FINISHED");
 });
+
+/**
+ * Referee-president exclusivity — publishing (confirm-block / finalize the
+ * date) is gated to the referee assigned as CompetitionDate.refereePresidentId,
+ * plus regatta managers. Any referee can view/load results (GET .../all,
+ * PUT .../result) — that part stays open to the whole role, see the tests
+ * above. Ownership is enforced in ConfirmBlockUseCase and
+ * CompetitionDateController.transitionStatus (not in the route guard, which
+ * only checks role).
+ */
+
+test("REFEREE can list all inscriptions for a competition date (GET .../all) @tier0", async () => {
+  const adminToken = await apiLoginAs("ADMIN");
+  const fx = await setupInscriptionFixtures(adminToken);
+  const refereeToken = await loginAs(fx.referee.email, fx.referee.password);
+
+  const res = await api.get(
+    `/competitions/crew-entries/all?competitionDateId=${fx.competitionDateId}`,
+    refereeToken
+  );
+  expect(res).toBeTruthy();
+});
+
+test("the assigned referee president can confirm a block @tier0", async () => {
+  const adminToken = await apiLoginAs("ADMIN");
+  const regattaToken = await apiLoginAs("REGATTA_COMMISSION");
+  const fx = await setupInscriptionFixtures(adminToken);
+  const club1Token = await loginAs(fx.club1.delegateEmail, fx.club1.delegatePassword);
+  const refereeToken = await loginAs(fx.referee.email, fx.referee.password);
+
+  const entry = await createEntry(fx, club1Token);
+  await api.put(
+    `/competitions/competition-dates/${fx.competitionDateId}`,
+    { refereePresidentId: fx.referee.userId },
+    regattaToken
+  );
+  await api.post(
+    `/competitions/competition-dates/${fx.competitionDateId}/sorteo/confirm`,
+    { assignments: [{ entryId: entry.data.id, series: "Final", lane: 1 }] },
+    regattaToken
+  );
+  await api.put(
+    `/competitions/crew-entries/${entry.data.id}/result`,
+    { resultCode: "FINISHED", position: 1, time: "3:45.20" },
+    regattaToken
+  );
+
+  await api.post(
+    "/competitions/crew-entries/confirm-block",
+    { competitionDateId: fx.competitionDateId, eventId: fx.eventId, series: "Final" },
+    refereeToken
+  );
+
+  const result = await getResult(fx, entry.data.id, club1Token);
+  expect(result?.resultCode).toBe("FINISHED");
+});
+
+test("a referee who is NOT the assigned president cannot confirm a block @tier0", async () => {
+  const adminToken = await apiLoginAs("ADMIN");
+  const regattaToken = await apiLoginAs("REGATTA_COMMISSION");
+  const fx = await setupInscriptionFixtures(adminToken);
+  const club1Token = await loginAs(fx.club1.delegateEmail, fx.club1.delegatePassword);
+  // The generic seeded REFEREE account — a different user than fx.referee,
+  // which is the one about to be assigned as president below.
+  const otherRefereeToken = await apiLoginAs("REFEREE");
+
+  const entry = await createEntry(fx, club1Token);
+  await api.put(
+    `/competitions/competition-dates/${fx.competitionDateId}`,
+    { refereePresidentId: fx.referee.userId },
+    regattaToken
+  );
+  await api.post(
+    `/competitions/competition-dates/${fx.competitionDateId}/sorteo/confirm`,
+    { assignments: [{ entryId: entry.data.id, series: "Final", lane: 1 }] },
+    regattaToken
+  );
+  await api.put(
+    `/competitions/crew-entries/${entry.data.id}/result`,
+    { resultCode: "FINISHED", position: 1, time: "3:45.20" },
+    regattaToken
+  );
+
+  await expect(
+    api.post(
+      "/competitions/crew-entries/confirm-block",
+      { competitionDateId: fx.competitionDateId, eventId: fx.eventId, series: "Final" },
+      otherRefereeToken
+    )
+  ).rejects.toMatchObject({ status: 403 } satisfies Partial<ApiError>);
+});
+
+test("the assigned referee president can finalize the competition date @tier0", async () => {
+  const adminToken = await apiLoginAs("ADMIN");
+  const regattaToken = await apiLoginAs("REGATTA_COMMISSION");
+  const fx = await setupInscriptionFixtures(adminToken, { advanceToClosed: true });
+  const refereeToken = await loginAs(fx.referee.email, fx.referee.password);
+
+  await api.patch(
+    `/competitions/competition-dates/${fx.competitionDateId}/status`,
+    { status: "IN_COMPETITION" },
+    regattaToken
+  );
+
+  await api.patch(
+    `/competitions/competition-dates/${fx.competitionDateId}/status`,
+    { status: "FINAL_RESULTS" },
+    refereeToken
+  );
+});
+
+test("a referee who is NOT the assigned president cannot finalize the competition date @tier0", async () => {
+  const adminToken = await apiLoginAs("ADMIN");
+  const regattaToken = await apiLoginAs("REGATTA_COMMISSION");
+  const fx = await setupInscriptionFixtures(adminToken, { advanceToClosed: true });
+  const otherRefereeToken = await apiLoginAs("REFEREE");
+
+  await api.patch(
+    `/competitions/competition-dates/${fx.competitionDateId}/status`,
+    { status: "IN_COMPETITION" },
+    regattaToken
+  );
+
+  await expect(
+    api.patch(
+      `/competitions/competition-dates/${fx.competitionDateId}/status`,
+      { status: "FINAL_RESULTS" },
+      otherRefereeToken
+    )
+  ).rejects.toMatchObject({ status: 403 } satisfies Partial<ApiError>);
+});
+
+test("a referee cannot perform non-finalize status transitions, even as the assigned president @tier0", async () => {
+  const adminToken = await apiLoginAs("ADMIN");
+  const fx = await setupInscriptionFixtures(adminToken);
+  const refereeToken = await loginAs(fx.referee.email, fx.referee.password);
+
+  await expect(
+    api.patch(
+      `/competitions/competition-dates/${fx.competitionDateId}/status`,
+      { status: "IN_REVIEW" },
+      refereeToken
+    )
+  ).rejects.toMatchObject({ status: 403 } satisfies Partial<ApiError>);
+});
