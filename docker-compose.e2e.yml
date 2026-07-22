@@ -112,7 +112,10 @@ services:
       OCR_SERVICE_URL: http://ocr-stub:8001
       LOG_LEVEL: warn
       RATE_LIMIT_WINDOW_MS: 900000
-      RATE_LIMIT_MAX_REQUESTS: 1000
+      # 1000 was enough for CI's tier0-only smoke subset but a full local run
+      # (tier0 + tier1, ~150 specs) legitimately makes more requests than that
+      # inside one 15-min window and started tripping 429s mid-suite.
+      RATE_LIMIT_MAX_REQUESTS: 10000
       # The real production login limiter (10/15min/IP) would block the
       # login.spec.ts suite, which logs in as all 11 fixture roles from a
       # single IP in one run. Overridden here only — see env.config.ts.
