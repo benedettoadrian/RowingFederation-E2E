@@ -69,7 +69,13 @@ test("confirming a Final block computes and exposes circuit standings @tier0", a
 
   await api.put(
     `/competitions/competition-dates/${fx.competitionDateId}`,
-    { refereePresidentId: fx.referee.userId },
+    {
+      refereePresidentId: fx.referee.userId,
+      // IN_REVIEW -> CLOSED also requires both crew-change-window fields
+      // set (competition-date-status.service.ts), same gate as referee.
+      crewChangeWindowOpensAt: new Date(Date.now() - 86_400_000).toISOString(),
+      crewChangeWindowClosesAt: new Date(Date.now() + 86_400_000).toISOString(),
+    },
     regattaToken
   );
 

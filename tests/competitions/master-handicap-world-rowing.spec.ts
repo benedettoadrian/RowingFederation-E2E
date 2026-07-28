@@ -105,7 +105,13 @@ test("golden path: World Rowing method through a real championship, end to end @
 
   await api.put(
     `/competitions/competition-dates/${fx.competitionDateId}`,
-    { refereePresidentId: fx.referee.userId },
+    {
+      refereePresidentId: fx.referee.userId,
+      // IN_REVIEW -> CLOSED also requires both crew-change-window fields
+      // set (competition-date-status.service.ts), same gate as referee.
+      crewChangeWindowOpensAt: new Date(Date.now() - 86_400_000).toISOString(),
+      crewChangeWindowClosesAt: new Date(Date.now() + 86_400_000).toISOString(),
+    },
     regattaToken
   );
   await api.post(
@@ -240,7 +246,13 @@ test("standalone date (no championship) with its own World Rowing method calcula
 
   await api.put(
     `/competitions/competition-dates/${fx.competitionDateId}`,
-    { refereePresidentId: fx.referee.userId },
+    {
+      refereePresidentId: fx.referee.userId,
+      // IN_REVIEW -> CLOSED also requires both crew-change-window fields
+      // set (competition-date-status.service.ts), same gate as referee.
+      crewChangeWindowOpensAt: new Date(Date.now() - 86_400_000).toISOString(),
+      crewChangeWindowClosesAt: new Date(Date.now() + 86_400_000).toISOString(),
+    },
     regattaToken
   );
   await api.post(
@@ -431,7 +443,13 @@ test("results sheet shows the didactic World Rowing detail with real numbers @ti
 
   await api.put(
     `/competitions/competition-dates/${fx.competitionDateId}`,
-    { refereePresidentId: fx.referee.userId },
+    {
+      refereePresidentId: fx.referee.userId,
+      // IN_REVIEW -> CLOSED also requires both crew-change-window fields
+      // set (competition-date-status.service.ts), same gate as referee.
+      crewChangeWindowOpensAt: new Date(Date.now() - 86_400_000).toISOString(),
+      crewChangeWindowClosesAt: new Date(Date.now() + 86_400_000).toISOString(),
+    },
     regattaToken
   );
   await api.post(

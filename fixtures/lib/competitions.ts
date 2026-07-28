@@ -268,6 +268,15 @@ export async function setupInscriptionFixtures(
     regattaToken
   );
 
+  // IN_REVIEW -> CLOSED also requires both crew-change-window fields set
+  // (competition-date-status.service.ts, same gate as refereePresidentId) —
+  // arbitrary but valid (opensAt < closesAt) is enough here, nothing in the
+  // transition gate itself checks these against `date`/`startTime`.
+  const crewChangeWindowOpensAt = new Date();
+  crewChangeWindowOpensAt.setUTCDate(crewChangeWindowOpensAt.getUTCDate() - 1);
+  const crewChangeWindowClosesAt = new Date();
+  crewChangeWindowClosesAt.setUTCDate(crewChangeWindowClosesAt.getUTCDate() + 1);
+
   const dateFixtures = { clubId: club1Id, pistaId: pista.data.id, programId: program.data.id };
   const datePayload = competitionDatePayload(
     dateFixtures,
@@ -279,7 +288,11 @@ export async function setupInscriptionFixtures(
     // value (see `date` in the return below) instead of assuming "now".
     30 + Math.floor(Math.random() * 500_000),
     {
-      ...(opts.advanceToClosed && { refereePresidentId: referee.data.id }),
+      ...(opts.advanceToClosed && {
+        refereePresidentId: referee.data.id,
+        crewChangeWindowOpensAt: crewChangeWindowOpensAt.toISOString(),
+        crewChangeWindowClosesAt: crewChangeWindowClosesAt.toISOString(),
+      }),
       ...opts.dateOverrides,
     }
   );
