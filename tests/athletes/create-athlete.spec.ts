@@ -86,3 +86,17 @@ test("creates an athlete with every field plus a profile photo, and it renders o
   const photo = page.getByAltText("Completo");
   await expect(photo).toHaveAttribute("src", /^blob:/, { timeout: 10_000 });
 });
+
+test("a CLUB_DELEGATE creating an athlete sees their own club locked in, not a club picker @tier0", async ({
+  page,
+}) => {
+  const adminToken = await apiLoginAs("ADMIN");
+  const { clubs } = loadFixtures();
+  const club = await api.get<{ data: { name: string } }>(`/clubs/${clubs.club1}`, adminToken);
+
+  await loginAs(page, "CLUB_DELEGATE");
+  await page.goto("/es/athletes/new");
+
+  await expect(page.getByText(club.data.name)).toBeVisible();
+  await expect(page.getByRole("combobox", { name: /club/i })).toHaveCount(0);
+});
