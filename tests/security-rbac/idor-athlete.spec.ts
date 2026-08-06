@@ -2,14 +2,15 @@ import { test, expect } from "@playwright/test";
 import { loginAs, loadFixtures } from "../../fixtures/auth.js";
 import { API_URL } from "../../fixtures/lib/config.js";
 
-// Fase 3.3 — a CLUB_DELEGATE must not be able to view an athlete belonging
-// to a different club by navigating directly to its URL. Backend enforces
-// this in the controller itself (athlete.controller.ts, inline club-scope
-// check on GET /:id) — this test proves the real 403 reaches the UI, not
-// just that the endpoint exists.
-test("CLUB_DELEGATE cannot view another club's athlete via direct URL @tier0", async ({
-  page,
-}) => {
+// Fase 3.3 (2026-07) originally required a CLUB_DELEGATE be blocked from
+// viewing an athlete belonging to a different club — reversed 2026-08-06
+// per a real user-reported bug: a delegate must be able to browse/view
+// EVERY athlete in the system (list, profile, requirements/documents),
+// same as any other role. Club scoping only applies to *write* actions —
+// editing an athlete (frontend pencil + updateAthlete's assertClubScope)
+// and uploading/reviewing a requirement document (still assertClubScope-
+// gated, see tests/athletes/list-scoping.spec.ts for that coverage).
+test("CLUB_DELEGATE can view another club's athlete via direct URL @tier0", async ({ page }) => {
   const { athletes } = loadFixtures();
 
   await loginAs(page, "CLUB_DELEGATE"); // scoped to club1
@@ -25,10 +26,8 @@ test("CLUB_DELEGATE cannot view another club's athlete via direct URL @tier0", a
   await page.goto(`/es/athletes/${athletes.club2}`);
   const response = await responsePromise;
 
-  expect(response.status()).toBe(403);
-  // athletes/[id]/page.tsx renders this on isError, no redirect — see
-  // useAthlete()'s isError branch.
-  await expect(page.getByText("Error al cargar los datos")).toBeVisible();
+  expect(response.status()).toBe(200);
+  await expect(page.getByText("Error al cargar los datos")).not.toBeVisible();
 });
 
 test("CLUB_DELEGATE can view its own club's athlete @tier0", async ({ page }) => {
@@ -44,4 +43,17 @@ test("CLUB_DELEGATE can view its own club's athlete @tier0", async ({ page }) =>
 
   expect(response.status()).toBe(200);
   await expect(page.getByText("Error al cargar los datos")).not.toBeVisible();
+});
+
+test("CLUB_DELEGATE does not see the edit button on another club's athlete profile @tier0", async ({
+  page,
+}) => {
+  const { athletes } = loadFixtures();
+
+  await loginAs(page, "CLUB_DELEGATE"); // scoped to club1
+  await page.goto(`/es/athletes/${athletes.club2}`);
+
+  // Viewing is allowed, editing isn't — the pencil/edit action stays
+  // club-scoped (athletes/[id]/page.tsx's canUpload/edit-link condition).
+  await expect(page.getByRole("link", { name: /editar/i })).not.toBeVisible();
 });
