@@ -274,14 +274,14 @@ test("a referee who is NOT the assigned president cannot confirm a block @tier0"
 
 test("the assigned referee president can finalize the competition date @tier0", async () => {
   const adminToken = await apiLoginAs("ADMIN");
-  const regattaToken = await apiLoginAs("REGATTA_COMMISSION");
   const fx = await setupInscriptionFixtures(adminToken, { advanceToClosed: true });
   const refereeToken = await loginAs(fx.referee.email, fx.referee.password);
 
+  // Manually forcing CLOSED -> IN_COMPETITION is ADMIN-only (competition-date.controller.ts:217).
   await api.patch(
     `/competitions/competition-dates/${fx.competitionDateId}/status`,
     { status: "IN_COMPETITION" },
-    regattaToken
+    adminToken
   );
 
   await api.patch(
@@ -293,14 +293,14 @@ test("the assigned referee president can finalize the competition date @tier0", 
 
 test("a referee who is NOT the assigned president cannot finalize the competition date @tier0", async () => {
   const adminToken = await apiLoginAs("ADMIN");
-  const regattaToken = await apiLoginAs("REGATTA_COMMISSION");
   const fx = await setupInscriptionFixtures(adminToken, { advanceToClosed: true });
   const otherRefereeToken = await apiLoginAs("REFEREE");
 
+  // Manually forcing CLOSED -> IN_COMPETITION is ADMIN-only (competition-date.controller.ts:217).
   await api.patch(
     `/competitions/competition-dates/${fx.competitionDateId}/status`,
     { status: "IN_COMPETITION" },
-    regattaToken
+    adminToken
   );
 
   await expect(

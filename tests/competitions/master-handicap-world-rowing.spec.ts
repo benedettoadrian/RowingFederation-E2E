@@ -467,7 +467,8 @@ test("results sheet shows the didactic World Rowing detail with real numbers @ti
   // The results page only renders for IN_COMPETITION/FINAL_RESULTS dates.
   await api.patch(`/competitions/competition-dates/${fx.competitionDateId}/status`, { status: "IN_REVIEW" }, regattaToken);
   await api.patch(`/competitions/competition-dates/${fx.competitionDateId}/status`, { status: "CLOSED" }, regattaToken);
-  await api.patch(`/competitions/competition-dates/${fx.competitionDateId}/status`, { status: "IN_COMPETITION" }, regattaToken);
+  // Manually forcing CLOSED -> IN_COMPETITION is ADMIN-only (competition-date.controller.ts:217).
+  await api.patch(`/competitions/competition-dates/${fx.competitionDateId}/status`, { status: "IN_COMPETITION" }, adminToken);
 
   await loginAsUi(page, "REGATTA_COMMISSION");
   await page.goto(`/es/competitions/dates/${fx.competitionDateId}/results`);

@@ -72,9 +72,20 @@ async function assignPost(
   post: "MESA_LLEGADA" | "CONTROL_PISTA" | "LANCHA",
   launchNumber?: number
 ) {
+  // scheduledFrom/scheduledTo became required by referee-shift-schedule
+  // (20260728142815_add_referee_shift_schedule) — a wide window covering a
+  // full competition day, since these tests don't exercise shift-overlap
+  // rules themselves (that's referee-work-assignments.spec.ts's job).
   await api.post(
     "/competitions/referee-work-assignments",
-    { competitionDateId, refereeId, post, ...(launchNumber !== undefined ? { launchNumber } : {}) },
+    {
+      competitionDateId,
+      refereeId,
+      post,
+      scheduledFrom: "08:00",
+      scheduledTo: "20:00",
+      ...(launchNumber !== undefined ? { launchNumber } : {}),
+    },
     regattaToken
   );
 }
@@ -545,16 +556,75 @@ test("two mesa de llegada referees assigning DIFFERENT marks to the SAME boat �
   expect(rejected).toHaveLength(1);
 });
 
+// ── Concurrency: result overwrite across Control de Pista / Mesa de Llegada ──
+
+test("Mesa de Llegada assigning FINISHED and Control de Pista rejecting the same boat at nearly the same time — result ends up consistent, never corrupted @tier0", async () => {
+  const regattaToken = await apiLoginAs("REGATTA_COMMISSION");
+  const { adminToken, fx, entry1, raceA, club1Token } = await setupLiveRace(regattaToken);
+  const lancha = await createReferee(adminToken, `xrA-${randomUUID().slice(0, 6)}`);
+  const mesa = await createReferee(adminToken, `xrB-${randomUUID().slice(0, 6)}`);
+  const pista = await createReferee(adminToken, `xrC-${randomUUID().slice(0, 6)}`);
+  await assignPost(regattaToken, fx.competitionDateId, lancha.userId, "LANCHA", 1);
+  await assignPost(regattaToken, fx.competitionDateId, mesa.userId, "MESA_LLEGADA");
+  await assignPost(regattaToken, fx.competitionDateId, pista.userId, "CONTROL_PISTA");
+
+  await withRetry(() => api.post(`/competitions/race-executions/${raceA.id}/claim`, {}, lancha.token));
+  await api.post(`/competitions/race-executions/${raceA.id}/start`, {}, lancha.token);
+  const mark = await api.post<{ data: { id: string } }>(
+    "/competitions/finish-marks",
+    { raceExecutionId: raceA.id },
+    mesa.token
+  );
+
+  // Mesa assigns the mark (writes FINISHED) and Control de Pista rejects the
+  // same boat (writes DSQ) at nearly the same time — both go through
+  // upsertResult's Serializable transaction on the same CrewEntryResult row.
+  // Whichever loses must surface as a retry-safe 409, never a silent/lost
+  // write, and the row must never end up in a corrupted mixed state.
+  const results = await Promise.allSettled([
+    api.post<{ data: { position: number } }>(
+      `/competitions/finish-marks/${mark.data.id}/assign`,
+      { crewEntryId: entry1.data.id },
+      mesa.token
+    ),
+    api.post(
+      "/competitions/lane-control-checks",
+      { crewEntryId: entry1.data.id, raceExecutionId: raceA.id, decision: "REJECTED_LATE" },
+      pista.token
+    ),
+  ]);
+
+  for (const r of results) {
+    if (r.status === "rejected") {
+      expect((r.reason as ApiError).status).toBe(409);
+    }
+  }
+  const successCount = results.filter((r) => r.status === "fulfilled").length;
+  expect(successCount).toBeGreaterThanOrEqual(1);
+
+  const entries = await api.get<{
+    data: { id: string; result?: { resultCode: string } }[];
+  }>(
+    `/competitions/crew-entries?competitionDateId=${fx.competitionDateId}&clubId=${fx.club1Id}`,
+    club1Token
+  );
+  const finalResult = entries.data.find((e) => e.id === entry1.data.id)?.result;
+  expect(finalResult).toBeTruthy();
+  expect(["FINISHED", "DSQ"]).toContain(finalResult!.resultCode);
+});
+
 // ── Public + authenticated listings (C13-C14) ───────────────────────────────
 
 test("public race-executions listing hides referee-facing fields @tier0", async () => {
   const regattaToken = await apiLoginAs("REGATTA_COMMISSION");
   const { fx } = await setupLiveRace(regattaToken);
 
+  // Manually forcing CLOSED -> IN_COMPETITION is ADMIN-only (competition-date.controller.ts:217).
+  const adminToken = await apiLoginAs("ADMIN");
   await api.patch(
     `/competitions/competition-dates/${fx.competitionDateId}/status`,
     { status: "IN_COMPETITION" },
-    regattaToken
+    adminToken
   );
 
   const publicRes = await api.get<{ data: { eventId: string; series: string; status: string }[] }>(

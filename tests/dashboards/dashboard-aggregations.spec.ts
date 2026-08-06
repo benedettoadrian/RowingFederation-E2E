@@ -81,7 +81,13 @@ test("referee my-history: shows a post the referee was just assigned, most recen
 
   await api.post(
     "/competitions/referee-work-assignments",
-    { competitionDateId: fx.competitionDateId, refereeId: credentials.REFEREE.userId, post: "CONTROL_PISTA" },
+    {
+      competitionDateId: fx.competitionDateId,
+      refereeId: credentials.REFEREE.userId,
+      post: "CONTROL_PISTA",
+      scheduledFrom: "08:00",
+      scheduledTo: "20:00",
+    },
     refereeToken
   );
 

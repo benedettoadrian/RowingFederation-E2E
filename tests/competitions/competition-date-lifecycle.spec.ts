@@ -23,8 +23,12 @@ import { setupCompetitionDateFixtures, competitionDatePayload } from "../../fixt
 // PATCH .../status responds { success, message } with no `data` (verified
 // against competition-date.controller.ts:152) — status is confirmed via a
 // follow-up GET, not the transition response itself.
+// Manually forcing CLOSED -> IN_COMPETITION is ADMIN-only (see
+// competition-date.controller.ts:217) — every other transition accepts
+// REGATTA_COMMISSION, so callers only need to switch tokens for this one.
 async function transition(id: string, status: string, token: string) {
-  return api.patch(`/competitions/competition-dates/${id}/status`, { status }, token);
+  const actingToken = status === "IN_COMPETITION" ? await apiLoginAs("ADMIN") : token;
+  return api.patch(`/competitions/competition-dates/${id}/status`, { status }, actingToken);
 }
 
 // CompetitionDate.date is unique DB-wide (not per-club) — a random offset

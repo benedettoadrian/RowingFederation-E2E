@@ -19,6 +19,27 @@ async function loginAs(email: string, password: string): Promise<string> {
   return res.data.accessToken;
 }
 
+// upsertResult runs inside a Serializable transaction (crew-entry.repository.impl.ts)
+// so it can abort with a "CONFLICT: transaction conflict, please retry" 400 under
+// concurrent load on the crew_entry_results table — expected/documented behavior,
+// the client is meant to retry, not a sign either request was wrong.
+async function putResultWithRetry(
+  path: string,
+  body: unknown,
+  token: string,
+  attempts = 3
+): Promise<unknown> {
+  for (let i = 0; i < attempts; i++) {
+    try {
+      return await api.put(path, body, token);
+    } catch (error) {
+      const isLastAttempt = i === attempts - 1;
+      const isConflict = error instanceof ApiError && error.status === 400 && /CONFLICT/.test(String(error.body));
+      if (!isConflict || isLastAttempt) throw error;
+    }
+  }
+}
+
 interface EntryWithMasterResult {
   id: string;
   result: {
@@ -142,12 +163,12 @@ test("golden path: save net times -> calculate handicap -> confirm block, older 
   // entry1 (age 53, handicap 0) is nominally faster on the clock than
   // entry2 (age 63, handicap 10s) — but 10s of handicap flips the placing:
   // entry2's official time (4:15.00 - 10s = 4:05.00) beats entry1's 4:10.00.
-  await api.put(
+  await putResultWithRetry(
     `/competitions/crew-entries/${entry1.data.id}/result`,
     { resultCode: "FINISHED", time: "4:10.00" },
     regattaToken
   );
-  await api.put(
+  await putResultWithRetry(
     `/competitions/crew-entries/${entry2.data.id}/result`,
     { resultCode: "FINISHED", time: "4:15.00" },
     regattaToken
@@ -182,8 +203,8 @@ test("calculate-master-handicap refuses to recalculate an already-confirmed bloc
   const regattaToken = await apiLoginAs("REGATTA_COMMISSION");
   const { fx, entry1, entry2 } = await setupMasterRace(adminToken, regattaToken);
 
-  await api.put(`/competitions/crew-entries/${entry1.data.id}/result`, { resultCode: "FINISHED", time: "4:10.00" }, regattaToken);
-  await api.put(`/competitions/crew-entries/${entry2.data.id}/result`, { resultCode: "FINISHED", time: "4:15.00" }, regattaToken);
+  await putResultWithRetry(`/competitions/crew-entries/${entry1.data.id}/result`, { resultCode: "FINISHED", time: "4:10.00" }, regattaToken);
+  await putResultWithRetry(`/competitions/crew-entries/${entry2.data.id}/result`, { resultCode: "FINISHED", time: "4:15.00" }, regattaToken);
 
   await api.post(
     "/competitions/crew-entries/calculate-master-handicap",
@@ -238,7 +259,7 @@ test("calculate-master-handicap rejects a non-Masters event @tier0", async () =>
     { assignments: [{ entryId: entry.data.id, series: "Final", lane: 1 }] },
     regattaToken
   );
-  await api.put(`/competitions/crew-entries/${entry.data.id}/result`, { resultCode: "FINISHED", time: "4:10.00" }, regattaToken);
+  await putResultWithRetry(`/competitions/crew-entries/${entry.data.id}/result`, { resultCode: "FINISHED", time: "4:10.00" }, regattaToken);
 
   await expect(
     api.post(
