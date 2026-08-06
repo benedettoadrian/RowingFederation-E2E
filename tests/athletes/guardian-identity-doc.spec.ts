@@ -64,7 +64,7 @@ async function createAthlete(
       firstSurname: `Test${randomUUID().slice(0, 8)}`,
       gender: "MALE",
       birthdate,
-      nationality: "Uruguay",
+      nationality: "UY",
       documentType: "PASSPORT",
       documentNumber,
       currentClubId: clubId,

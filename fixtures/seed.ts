@@ -179,7 +179,7 @@ function athletePayload(surnameSuffix: string, documentNumber: string, clubId: s
     firstSurname: surnameSuffix,
     gender: "MALE",
     birthdate: "2000-01-01",
-    nationality: "Uruguay",
+    nationality: "UY",
     documentType: "DNI",
     documentNumber,
     currentClubId: clubId,

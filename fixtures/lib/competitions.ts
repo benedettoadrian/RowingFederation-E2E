@@ -347,7 +347,7 @@ export async function setupInscriptionFixtures(
         firstSurname: label,
         gender: "MALE",
         birthdate: athleteBirthdate ?? "2000-01-01",
-        nationality: "Uruguay",
+        nationality: "UY",
         documentType: "PASSPORT",
         documentNumber: `INS${label}`,
         currentClubId: clubId,

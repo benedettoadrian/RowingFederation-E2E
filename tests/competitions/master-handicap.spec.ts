@@ -27,7 +27,7 @@ async function putResultWithRetry(
   path: string,
   body: unknown,
   token: string,
-  attempts = 3
+  attempts = 5
 ): Promise<unknown> {
   for (let i = 0; i < attempts; i++) {
     try {
@@ -36,6 +36,10 @@ async function putResultWithRetry(
       const isLastAttempt = i === attempts - 1;
       const isConflict = error instanceof ApiError && error.status === 400 && /CONFLICT/.test(String(error.body));
       if (!isConflict || isLastAttempt) throw error;
+      // Small backoff so a still-in-flight contending transaction has time to
+      // clear before the next attempt, instead of retrying back-to-back into
+      // the same collision under sustained parallel load.
+      await new Promise((r) => setTimeout(r, 100 * (i + 1)));
     }
   }
 }

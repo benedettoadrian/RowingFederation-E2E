@@ -29,7 +29,7 @@ test("transferring an athlete updates currentClubId and closes/opens club histor
       firstSurname: `Test${randomUUID().slice(0, 8)}`,
       gender: "MALE",
       birthdate: "2000-01-01",
-      nationality: "Uruguay",
+      nationality: "UY",
       documentType: "PASSPORT",
       documentNumber: `T${randomUUID().slice(0, 8)}`,
       currentClubId: clubs.club1,

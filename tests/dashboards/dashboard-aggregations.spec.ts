@@ -113,7 +113,7 @@ test("athletes without-documents: a freshly created athlete (no uploads) appears
       firstSurname: `Test${randomUUID().slice(0, 8)}`,
       gender: "MALE",
       birthdate: "2000-01-01",
-      nationality: "Uruguay",
+      nationality: "UY",
       documentType: "PASSPORT",
       documentNumber: `NODOC${randomUUID().replace(/-/g, "").slice(0, 6).toUpperCase()}`,
       currentClubId: clubs.club1,

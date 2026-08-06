@@ -37,7 +37,7 @@ async function createAthleteAndUpload(
       firstSurname: randomUUID().slice(0, 8),
       gender: "MALE",
       birthdate: "2000-01-01",
-      nationality: "Uruguay",
+      nationality: "UY",
       documentType: "PASSPORT",
       documentNumber,
       currentClubId: clubId,

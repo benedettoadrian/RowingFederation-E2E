@@ -25,7 +25,7 @@ test("golden path: creates an athlete with only the minimum required fields", as
       firstSurname: `Test${randomUUID().slice(0, 8)}`,
       gender: "MALE",
       birthdate: "2000-01-01",
-      nationality: "Uruguay",
+      nationality: "UY",
       documentType: "PASSPORT",
       documentNumber: `MIN${randomUUID().replace(/-/g, "").slice(0, 8).toUpperCase()}`,
       currentClubId: clubs.club1,
@@ -56,7 +56,7 @@ test("creates an athlete with every field plus a profile photo, and it renders o
       nameDisplay: "FIRST_ONLY",
       gender: "FEMALE",
       birthdate: "1995-06-15",
-      nationality: "Argentina",
+      nationality: "AR",
       documentType: "NATIONAL_ID",
       // NATIONAL_ID requires exactly 8 digits (see athlete-validation.dto.ts) — no letters.
       documentNumber: String(10000000 + Math.floor(Math.random() * 89999999)),

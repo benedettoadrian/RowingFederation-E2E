@@ -107,7 +107,7 @@ test("KNOWN GAP: canRegisterAthletes says true for DEBTOR, but a DEBTOR club's d
         firstSurname: randomUUID().slice(0, 8),
         gender: "MALE",
         birthdate: "2000-01-01",
-        nationality: "Uruguay",
+        nationality: "UY",
         documentType: "PASSPORT",
         documentNumber: `DEBT${randomUUID().slice(0, 6)}`,
         currentClubId: clubId,
