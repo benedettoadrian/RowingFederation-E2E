@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { test, expect } from "@playwright/test";
 import { apiLoginAs, loadFixtures } from "../../fixtures/auth.js";
-import { api, ApiError } from "../../fixtures/lib/api.js";
+import { api, ApiError, withConflictRetry } from "../../fixtures/lib/api.js";
 import { setupInscriptionFixtures } from "../../fixtures/lib/competitions.js";
 
 /**
@@ -79,16 +79,18 @@ test("referee my-history: shows a post the referee was just assigned, most recen
   const { credentials } = loadFixtures();
   const fx = await setupInscriptionFixtures(regattaToken, { advanceToClosed: true });
 
-  await api.post(
-    "/competitions/referee-work-assignments",
-    {
-      competitionDateId: fx.competitionDateId,
-      refereeId: credentials.REFEREE.userId,
-      post: "CONTROL_PISTA",
-      scheduledFrom: "08:00",
-      scheduledTo: "20:00",
-    },
-    refereeToken
+  await withConflictRetry(() =>
+    api.post(
+      "/competitions/referee-work-assignments",
+      {
+        competitionDateId: fx.competitionDateId,
+        refereeId: credentials.REFEREE.userId,
+        post: "CONTROL_PISTA",
+        scheduledFrom: "08:00",
+        scheduledTo: "20:00",
+      },
+      refereeToken
+    )
   );
 
   const history = await api.get<{

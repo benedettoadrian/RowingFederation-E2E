@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { test, expect } from "@playwright/test";
 import { apiLoginAs } from "../../fixtures/auth.js";
-import { api, ApiError } from "../../fixtures/lib/api.js";
+import { api, ApiError, withConflictRetry } from "../../fixtures/lib/api.js";
 import { setupInscriptionFixtures } from "../../fixtures/lib/competitions.js";
 
 /**
@@ -98,17 +98,23 @@ async function assignPost(
   // (20260728142815_add_referee_shift_schedule) — a wide window covering a
   // full competition day, since these tests don't exercise shift-overlap
   // rules themselves (that's referee-work-assignments.spec.ts's job).
-  await api.post(
-    "/competitions/referee-work-assignments",
-    {
-      competitionDateId,
-      refereeId,
-      post,
-      scheduledFrom: "08:00",
-      scheduledTo: "20:00",
-      ...(launchNumber !== undefined ? { launchNumber } : {}),
-    },
-    regattaToken
+  // The overlap check + create run inside a Serializable transaction
+  // (TOCTOU fix) — retry-safe conflicts are real and expected under
+  // full-suite parallel load now, same as every other Serializable write
+  // path in this module.
+  await withConflictRetry(() =>
+    api.post(
+      "/competitions/referee-work-assignments",
+      {
+        competitionDateId,
+        refereeId,
+        post,
+        scheduledFrom: "08:00",
+        scheduledTo: "20:00",
+        ...(launchNumber !== undefined ? { launchNumber } : {}),
+      },
+      regattaToken
+    )
   );
 }
 
@@ -343,6 +349,12 @@ test("two lanchas racing to claim the SAME race — exactly one wins @tier0", as
   expect([400, 409]).toContain(rejection.status);
 });
 
+// Claiming two DIFFERENT races still only lets one win — not a bug, a real
+// invariant: claim-race-execution.use-case.ts counts IN_PROGRESS races for
+// the whole competitionDateId (not just this raceExecutionId) and rejects
+// if one is already running, since only one boat can actually be on the
+// water/being timed at once. The final inProgressCount===1 assertion below
+// is checking that invariant directly, not just "exactly one HTTP call won."
 test("two lanchas racing to claim TWO DIFFERENT races on the same date — exactly one wins @tier0", async () => {
   const regattaToken = await apiLoginAs("REGATTA_COMMISSION");
   const { adminToken, fx, raceA, raceB } = await setupLiveRace(regattaToken);

@@ -45,14 +45,22 @@ export default defineConfig({
       // transaction) — withConflictRetry's jittered wall-clock budget
       // (fixtures/lib/api.ts) cut the failure rate a lot but didn't zero it
       // out under this project's own peak concurrent load; isolating these
-      // two files removes that contention outright instead of retrying
-      // through it. None of this is an app bug; all four just need to run
-      // without that contention.
+      // files removes that contention outright instead of retrying through
+      // it. referee_work_assignments is hit hard by BOTH
+      // referee-work-assignments.spec.ts (the dedicated writer) AND
+      // live-operations.spec.ts (assignPost is called from nearly every
+      // test in that large file — isolating the former alone still left
+      // enough internal same-file parallelism in the latter to exhaust
+      // withConflictRetry's full 30s budget on its own). None of this is
+      // an app bug; all six just need to run without that contention.
       testMatch: [
         /ocr-circuit-breaker\.spec\.ts/,
         /locale-render\.spec\.ts/,
         /competitions\/results\.spec\.ts/,
         /competitions\/master-handicap\.spec\.ts/,
+        /competitions\/master-handicap-world-rowing\.spec\.ts/,
+        /competitions\/referee-work-assignments\.spec\.ts/,
+        /competitions\/live-operations\.spec\.ts/,
       ],
       fullyParallel: false,
       use: { ...devices["Desktop Chrome"] },
@@ -64,6 +72,9 @@ export default defineConfig({
         /locale-render\.spec\.ts/,
         /competitions\/results\.spec\.ts/,
         /competitions\/master-handicap\.spec\.ts/,
+        /competitions\/master-handicap-world-rowing\.spec\.ts/,
+        /competitions\/referee-work-assignments\.spec\.ts/,
+        /competitions\/live-operations\.spec\.ts/,
       ],
       use: { ...devices["Desktop Chrome"] },
       dependencies: ["chromium-serial"],

@@ -1,6 +1,6 @@
 import { test, expect } from "@playwright/test";
 import { apiLoginAs, loadFixtures } from "../../fixtures/auth.js";
-import { api, ApiError } from "../../fixtures/lib/api.js";
+import { api, ApiError, withConflictRetry } from "../../fixtures/lib/api.js";
 import { setupInscriptionFixtures } from "../../fixtures/lib/competitions.js";
 
 /**
@@ -16,16 +16,18 @@ test("a referee can self-assign a work post @tier0", async () => {
   const { credentials } = loadFixtures();
   const fx = await setupInscriptionFixtures(regattaToken, { advanceToClosed: true });
 
-  const assigned = await api.post<{ data: { post: string; refereeId: string } }>(
-    "/competitions/referee-work-assignments",
-    {
-      competitionDateId: fx.competitionDateId,
-      refereeId: credentials.REFEREE.userId,
-      post: "MESA_LLEGADA",
-      scheduledFrom: "08:00",
-      scheduledTo: "20:00",
-    },
-    refereeToken
+  const assigned = await withConflictRetry(() =>
+    api.post<{ data: { post: string; refereeId: string } }>(
+      "/competitions/referee-work-assignments",
+      {
+        competitionDateId: fx.competitionDateId,
+        refereeId: credentials.REFEREE.userId,
+        post: "MESA_LLEGADA",
+        scheduledFrom: "08:00",
+        scheduledTo: "20:00",
+      },
+      refereeToken
+    )
   );
 
   expect(assigned.data.post).toBe("MESA_LLEGADA");
@@ -46,27 +48,31 @@ test("assigning a non-overlapping post keeps both shifts active, and a same-wind
 
   // Back-to-back shifts (touching boundary at 14:00) — referee-shift-schedule.service.ts
   // treats touching boundaries as non-overlapping, unlike the same window twice.
-  await api.post(
-    "/competitions/referee-work-assignments",
-    {
-      competitionDateId: fx.competitionDateId,
-      refereeId: credentials.REFEREE.userId,
-      post: "CONTROL_PISTA",
-      scheduledFrom: "08:00",
-      scheduledTo: "14:00",
-    },
-    refereeToken
+  await withConflictRetry(() =>
+    api.post(
+      "/competitions/referee-work-assignments",
+      {
+        competitionDateId: fx.competitionDateId,
+        refereeId: credentials.REFEREE.userId,
+        post: "CONTROL_PISTA",
+        scheduledFrom: "08:00",
+        scheduledTo: "14:00",
+      },
+      refereeToken
+    )
   );
-  await api.post(
-    "/competitions/referee-work-assignments",
-    {
-      competitionDateId: fx.competitionDateId,
-      refereeId: credentials.REFEREE.userId,
-      post: "MESA_LLEGADA",
-      scheduledFrom: "14:00",
-      scheduledTo: "20:00",
-    },
-    refereeToken
+  await withConflictRetry(() =>
+    api.post(
+      "/competitions/referee-work-assignments",
+      {
+        competitionDateId: fx.competitionDateId,
+        refereeId: credentials.REFEREE.userId,
+        post: "MESA_LLEGADA",
+        scheduledFrom: "14:00",
+        scheduledTo: "20:00",
+      },
+      refereeToken
+    )
   );
 
   const active = await api.get<{ data: { post: string; refereeId: string }[] }>(
@@ -121,17 +127,19 @@ test("REGATTA_COMMISSION can assign a different referee's post @tier0", async ()
   const regattaToken = await apiLoginAs("REGATTA_COMMISSION");
   const fx = await setupInscriptionFixtures(regattaToken, { advanceToClosed: true });
 
-  const assigned = await api.post<{ data: { post: string; launchNumber: number } }>(
-    "/competitions/referee-work-assignments",
-    {
-      competitionDateId: fx.competitionDateId,
-      refereeId: fx.referee.userId,
-      post: "LANCHA",
-      launchNumber: 3,
-      scheduledFrom: "08:00",
-      scheduledTo: "20:00",
-    },
-    regattaToken
+  const assigned = await withConflictRetry(() =>
+    api.post<{ data: { post: string; launchNumber: number } }>(
+      "/competitions/referee-work-assignments",
+      {
+        competitionDateId: fx.competitionDateId,
+        refereeId: fx.referee.userId,
+        post: "LANCHA",
+        launchNumber: 3,
+        scheduledFrom: "08:00",
+        scheduledTo: "20:00",
+      },
+      regattaToken
+    )
   );
 
   expect(assigned.data.post).toBe("LANCHA");
