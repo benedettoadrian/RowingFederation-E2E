@@ -76,19 +76,36 @@ async function makeFullyEligible(athleteId: string, token: string) {
   await pollUntilSettled(athleteId, token, (r) => r.data.swimmingConsent.status);
 }
 
-test("a CLUB_DELEGATE cannot force-activate an athlete with incomplete documents @tier0", async () => {
+test("a CLUB_DELEGATE requesting ACTIVE for a PENDING_APPROVAL athlete with incomplete documents silently stays PENDING_APPROVAL (no error) @tier0", async () => {
   const { clubs } = loadFixtures();
   const delegateToken = await apiLoginAs("CLUB_DELEGATE");
   const athleteId = await createAthlete(delegateToken, clubs.club1);
 
-  await expect(
-    api.put(`/athletes/${athleteId}`, { status: "ACTIVE" }, delegateToken)
-  ).rejects.toMatchObject({
-    status: 400,
-    body: expect.objectContaining({
-      error: expect.objectContaining({ message: expect.stringContaining("missing or expired") }),
-    }),
-  } satisfies Partial<ApiError>);
+  const updated = await api.put<{ data: { status: string } }>(
+    `/athletes/${athleteId}`,
+    { status: "ACTIVE" },
+    delegateToken
+  );
+  expect(updated.data.status).toBe("PENDING_APPROVAL");
+});
+
+test("a CLUB_DELEGATE requesting ACTIVE for an INACTIVE athlete with incomplete documents lands on PENDING_APPROVAL (no error) @tier0", async () => {
+  const { clubs } = loadFixtures();
+  const delegateToken = await apiLoginAs("CLUB_DELEGATE");
+  const adminToken = await apiLoginAs("ADMIN");
+  const athleteId = await createAthlete(delegateToken, clubs.club1);
+  // Admin can force PENDING_APPROVAL -> INACTIVE directly (no eligibility
+  // check for non-delegates) to set up the scenario reported by the user:
+  // an athlete goes INACTIVE, then documents lapse/were never completed,
+  // then a delegate tries to reactivate.
+  await api.put(`/athletes/${athleteId}`, { status: "INACTIVE" }, adminToken);
+
+  const updated = await api.put<{ data: { status: string } }>(
+    `/athletes/${athleteId}`,
+    { status: "ACTIVE" },
+    delegateToken
+  );
+  expect(updated.data.status).toBe("PENDING_APPROVAL");
 });
 
 test("a CLUB_DELEGATE can reactivate INACTIVE → ACTIVE once documents are complete @tier0", async () => {
