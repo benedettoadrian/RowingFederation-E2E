@@ -40,15 +40,31 @@ export default defineConfig({
       // every request (live competition status, medal counts, club count,
       // news, history) — queued behind ~190 concurrent API-hammering tests
       // in the main project, first-paint can blow well past the 30s test
-      // timeout. Neither is an app bug; both just need to run without that
-      // contention.
-      testMatch: [/ocr-circuit-breaker\.spec\.ts/, /locale-render\.spec\.ts/],
+      // timeout. results.spec.ts and master-handicap.spec.ts write directly
+      // and repeatedly to crew_entry_results (upsertResult's Serializable
+      // transaction) — withConflictRetry's jittered wall-clock budget
+      // (fixtures/lib/api.ts) cut the failure rate a lot but didn't zero it
+      // out under this project's own peak concurrent load; isolating these
+      // two files removes that contention outright instead of retrying
+      // through it. None of this is an app bug; all four just need to run
+      // without that contention.
+      testMatch: [
+        /ocr-circuit-breaker\.spec\.ts/,
+        /locale-render\.spec\.ts/,
+        /competitions\/results\.spec\.ts/,
+        /competitions\/master-handicap\.spec\.ts/,
+      ],
       fullyParallel: false,
       use: { ...devices["Desktop Chrome"] },
     },
     {
       name: "chromium",
-      testIgnore: [/ocr-circuit-breaker\.spec\.ts/, /locale-render\.spec\.ts/],
+      testIgnore: [
+        /ocr-circuit-breaker\.spec\.ts/,
+        /locale-render\.spec\.ts/,
+        /competitions\/results\.spec\.ts/,
+        /competitions\/master-handicap\.spec\.ts/,
+      ],
       use: { ...devices["Desktop Chrome"] },
       dependencies: ["chromium-serial"],
     },
