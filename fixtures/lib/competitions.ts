@@ -98,12 +98,22 @@ export function competitionDatePayload(
   };
 }
 
+const ABBREVIATION_ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+
 async function createClub(adminToken: string, label: string) {
   // Fresh entropy per call, independent of `label` — abbreviation is only
-  // 3-5 chars (regex ^[A-Z0-9]+$), and deriving it from a shared suffix
-  // truncated to 4 chars collided under parallel test execution (~14 club
-  // creations per run, birthday-paradox territory at 16^4 combinations).
-  const abbreviation = randomUUID().replace(/-/g, "").slice(0, 5).toUpperCase();
+  // 3-5 chars (regex ^[A-Z0-9]+$). A previous fix moved this off a
+  // shared-suffix derivation (16^4 space, collided under parallel
+  // execution) to a per-call randomUUID hex slice — but hex only draws
+  // from 16 of the 36 chars the schema actually allows (0-9A-F vs
+  // 0-9A-Z), leaving the 16^5 ≈ 1.05M space still collision-prone at
+  // full-suite volume (~4% chance across a few hundred club creations,
+  // birthday paradox). Drawing from the full A-Z0-9 alphabet instead
+  // gets 36^5 ≈ 60.5M — the maximum entropy the 5-char cap allows.
+  const abbreviation = Array.from(
+    { length: 5 },
+    () => ABBREVIATION_ALPHABET[Math.floor(Math.random() * ABBREVIATION_ALPHABET.length)]
+  ).join("");
   const club = await api.post<{ data: { id: string } }>(
     "/clubs",
     {
@@ -143,6 +153,13 @@ export async function setupInscriptionFixtures(
     scoresInCircuit?: boolean;
     advanceToClosed?: boolean;
     dateOverrides?: Record<string, unknown>;
+    // Master handicap tests need isMaster: true on the age category, plus
+    // control over each club's athlete birthdate (the default "2000-01-01"
+    // for both makes every crew the same age — useless for handicap math,
+    // which only does anything interesting when ages differ).
+    isMaster?: boolean;
+    club1AthleteBirthdate?: string;
+    club2AthleteBirthdate?: string;
   } = {}
 ) {
   const suffix = randomUUID().slice(0, 8);
@@ -200,9 +217,10 @@ export async function setupInscriptionFixtures(
   const ageCategory = await api.post<{ data: { id: string } }>(
     "/competitions/age-categories",
     {
-      name: `SENIOR-${randomUUID().replace(/-/g, "").slice(0, 8).toUpperCase()}`,
-      minAge: 19,
+      name: `${opts.isMaster ? "MASTER" : "SENIOR"}-${randomUUID().replace(/-/g, "").slice(0, 8).toUpperCase()}`,
+      minAge: opts.isMaster ? 27 : 19,
       maxAge: null,
+      ...(opts.isMaster && { isMaster: true }),
     },
     regattaToken
   );
@@ -260,21 +278,37 @@ export async function setupInscriptionFixtures(
     regattaToken
   );
 
+  // IN_REVIEW -> CLOSED also requires both crew-change-window fields set
+  // (competition-date-status.service.ts, same gate as refereePresidentId) —
+  // arbitrary but valid (opensAt < closesAt) is enough here, nothing in the
+  // transition gate itself checks these against `date`/`startTime`.
+  const crewChangeWindowOpensAt = new Date();
+  crewChangeWindowOpensAt.setUTCDate(crewChangeWindowOpensAt.getUTCDate() - 1);
+  const crewChangeWindowClosesAt = new Date();
+  crewChangeWindowClosesAt.setUTCDate(crewChangeWindowClosesAt.getUTCDate() + 1);
+
   const dateFixtures = { clubId: club1Id, pistaId: pista.data.id, programId: program.data.id };
+  const datePayload = competitionDatePayload(
+    dateFixtures,
+    // CompetitionDate.date is unique DB-wide. This fixture is now called
+    // from ~20 tests across 5+ files (inscriptions, sorteo, results,
+    // standings) — 5000 days of range collided under that volume
+    // (birthday paradox). Widened by 100x. This also means the resulting
+    // year can be centuries out — Master handicap tests need the real
+    // value (see `date` in the return below) instead of assuming "now".
+    30 + Math.floor(Math.random() * 500_000),
+    {
+      ...(opts.advanceToClosed && {
+        refereePresidentId: referee.data.id,
+        crewChangeWindowOpensAt: crewChangeWindowOpensAt.toISOString(),
+        crewChangeWindowClosesAt: crewChangeWindowClosesAt.toISOString(),
+      }),
+      ...opts.dateOverrides,
+    }
+  );
   const created = await api.post<{ data: { id: string } }>(
     "/competitions/competition-dates",
-    competitionDatePayload(
-      dateFixtures,
-      // CompetitionDate.date is unique DB-wide. This fixture is now called
-      // from ~20 tests across 5+ files (inscriptions, sorteo, results,
-      // standings) — 5000 days of range collided under that volume
-      // (birthday paradox). Widened by 100x.
-      30 + Math.floor(Math.random() * 500_000),
-      {
-        ...(opts.advanceToClosed && { refereePresidentId: referee.data.id }),
-        ...opts.dateOverrides,
-      }
-    ),
+    datePayload,
     regattaToken
   );
   const competitionDateId = created.data.id;
@@ -299,7 +333,7 @@ export async function setupInscriptionFixtures(
     );
   }
 
-  async function createDelegateAndAthlete(clubId: string, label: string) {
+  async function createDelegateAndAthlete(clubId: string, label: string, athleteBirthdate?: string) {
     const email = `delegate-${label}@e2e.test`;
     const delegateCreated = await api.post<{ data: { id: string } }>(
       "/users",
@@ -322,8 +356,8 @@ export async function setupInscriptionFixtures(
         firstName: "Athlete",
         firstSurname: label,
         gender: "MALE",
-        birthdate: "2000-01-01",
-        nationality: "Uruguay",
+        birthdate: athleteBirthdate ?? "2000-01-01",
+        nationality: "UY",
         documentType: "PASSPORT",
         documentNumber: `INS${label}`,
         currentClubId: clubId,
@@ -340,13 +374,18 @@ export async function setupInscriptionFixtures(
     };
   }
 
-  const club1Fixtures = await createDelegateAndAthlete(club1Id, `${suffix}A`);
-  const club2Fixtures = await createDelegateAndAthlete(club2Id, `${suffix}B`);
+  const club1Fixtures = await createDelegateAndAthlete(club1Id, `${suffix}A`, opts.club1AthleteBirthdate);
+  const club2Fixtures = await createDelegateAndAthlete(club2Id, `${suffix}B`, opts.club2AthleteBirthdate);
 
   return {
     club1Id,
     club2Id,
     competitionDateId,
+    // The real date used (see the widened-range comment above the payload
+    // build) — Master handicap FISA-age math is relative to this date's
+    // year, not "now", so tests can't hardcode an expected age from today's
+    // date.
+    date: datePayload.date,
     eventId: event.data.id,
     eventId2: event2.data.id,
     boatAthleteCount: 1,

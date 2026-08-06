@@ -37,7 +37,7 @@ async function createAthleteAndUpload(
       firstSurname: randomUUID().slice(0, 8),
       gender: "MALE",
       birthdate: "2000-01-01",
-      nationality: "Uruguay",
+      nationality: "UY",
       documentType: "PASSPORT",
       documentNumber,
       currentClubId: clubId,
@@ -75,6 +75,13 @@ async function pollUntilSettled(athleteId: string, token: string, maxWaitMs = 15
 }
 
 test("5 consecutive OCR failures open the circuit; the 6th call short-circuits to REVIEW without calling OCR @tier1", async () => {
+  // This test forces the circuit open and it stays that way for
+  // CIRCUIT_OPEN_MS (30s, hardcoded in ocr-http-client.service.ts). It runs
+  // in its own isolated Playwright project that every other project
+  // depends on (see playwright.config.ts) — so it must wait out the open
+  // window and confirm recovery itself before finishing, or every real OCR
+  // call in the next project would get short-circuited too.
+  test.setTimeout(75_000);
   const adminToken = await apiLoginAs("ADMIN");
   const { clubs } = loadFixtures();
 
@@ -98,4 +105,16 @@ test("5 consecutive OCR failures open the circuit; the 6th call short-circuits t
   );
   const sixthReason = await pollUntilSettled(sixthAthleteId, adminToken);
   expect(sixthReason).toContain("temporarily unavailable");
+
+  // Wait out CIRCUIT_OPEN_MS and confirm the circuit actually recovers —
+  // leaves the backend in a known-good state for every test that runs
+  // after this project.
+  await new Promise((r) => setTimeout(r, 31_000));
+  const recoveredAthleteId = await createAthleteAndUpload(
+    adminToken,
+    clubs.club1,
+    `OK${randomUUID().slice(0, 6)}`
+  );
+  const recoveredReason = await pollUntilSettled(recoveredAthleteId, adminToken);
+  expect(recoveredReason).not.toContain("temporarily unavailable");
 });

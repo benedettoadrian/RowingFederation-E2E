@@ -31,7 +31,7 @@ async function createAthlete(adminToken: string, clubId: string): Promise<string
       firstSurname: randomUUID().slice(0, 8),
       gender: "MALE",
       birthdate: "2000-01-01",
-      nationality: "Uruguay",
+      nationality: "UY",
       documentType: "PASSPORT",
       documentNumber: `UV${randomUUID().slice(0, 8)}`,
       currentClubId: clubId,

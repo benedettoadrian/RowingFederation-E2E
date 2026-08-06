@@ -1,6 +1,11 @@
 # RowingFederation-E2E
 
-Cross-repo E2E integration suite (frontend + backend + Postgres) for Sistema Agazzi.
+Cross-repo E2E integration suite (frontend + backend + Postgres) for "Sistema Agazzi", the
+Federación Uruguaya de Remo's management platform — see
+[RowingFederation-Backend](../RowingFederation-Backend#-what-this-solves) for the business
+context. Project rule: every new user-facing feature gets a test here, not just unit coverage
+in the individual repos — this is the only place that exercises frontend + backend + a real
+database together.
 Real production builds of [RowingFederation-Backend](../RowingFederation-Backend) and
 [RowingFederation-Frontend](../RowingFederation-Frontend), a disposable test Postgres, and a
 deterministic OCR stub (not the real EasyOCR service) wired together with Playwright driving

@@ -59,7 +59,7 @@ async function createAthlete(token: string, clubId: string, documentNumber: stri
       firstSurname: `Test${randomUUID().slice(0, 8)}`,
       gender: "MALE",
       birthdate: "2000-01-01",
-      nationality: "Uruguay",
+      nationality: "UY",
       // PASSPORT accepts alphanumeric (6-12 chars) — needed for the
       // "OCRFAIL" marker, which a numeric-only DNI format can't hold.
       documentType: "PASSPORT",

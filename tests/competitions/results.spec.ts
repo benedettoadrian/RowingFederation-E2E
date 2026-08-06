@@ -1,6 +1,6 @@
 import { test, expect } from "@playwright/test";
 import { apiLoginAs } from "../../fixtures/auth.js";
-import { api, ApiError } from "../../fixtures/lib/api.js";
+import { api, ApiError, withConflictRetry } from "../../fixtures/lib/api.js";
 import { setupInscriptionFixtures } from "../../fixtures/lib/competitions.js";
 
 /**
@@ -69,10 +69,12 @@ test("golden path: REGATTA_COMMISSION sets a FINISHED result @tier0", async () =
 
   const entry = await createEntry(fx, club1Token);
 
-  await api.put(
-    `/competitions/crew-entries/${entry.data.id}/result`,
-    { resultCode: "FINISHED", position: 1, time: "3:45.20" },
-    regattaToken
+  await withConflictRetry(() =>
+    api.put(
+      `/competitions/crew-entries/${entry.data.id}/result`,
+      { resultCode: "FINISHED", position: 1, time: "3:45.20" },
+      regattaToken
+    )
   );
 
   const result = await getResult(fx, entry.data.id, club1Token);
@@ -88,10 +90,8 @@ test("REFEREE can also set a result @tier0", async () => {
 
   const entry = await createEntry(fx, club1Token);
 
-  await api.put(
-    `/competitions/crew-entries/${entry.data.id}/result`,
-    { resultCode: "DNS" },
-    refereeToken
+  await withConflictRetry(() =>
+    api.put(`/competitions/crew-entries/${entry.data.id}/result`, { resultCode: "DNS" }, refereeToken)
   );
 
   const result = await getResult(fx, entry.data.id, club1Token);
@@ -114,18 +114,49 @@ test("CLUB_DELEGATE cannot set a result @tier0", async () => {
   ).rejects.toMatchObject({ status: 403 } satisfies Partial<ApiError>);
 });
 
-test("FINISHED result requires a position @tier0", async () => {
+// Was "FINISHED result requires a position @tier0" until the Master handicap
+// feature (2026-07-16): Masters results are saved progressively — net time
+// first, position filled in later by calculate-master-handicap — so
+// SetResultSchema no longer requires position for FINISHED at save time.
+// The gate moved to ConfirmBlockUseCase instead. This test documents the new
+// behavior end to end (was a straight 400 before, see git history).
+test("FINISHED result no longer requires a position at save time — the gate moved to confirm-block @tier0", async () => {
   const adminToken = await apiLoginAs("ADMIN");
+  const regattaToken = await apiLoginAs("REGATTA_COMMISSION");
   const fx = await setupInscriptionFixtures(adminToken);
   const club1Token = await loginAs(fx.club1.delegateEmail, fx.club1.delegatePassword);
-  const regattaToken = await apiLoginAs("REGATTA_COMMISSION");
 
   const entry = await createEntry(fx, club1Token);
 
-  await expect(
+  // Needs a series assigned (like sorteo would) for confirm-block to find it at all.
+  await api.put(
+    `/competitions/competition-dates/${fx.competitionDateId}`,
+    { refereePresidentId: fx.referee.userId },
+    regattaToken
+  );
+  await api.post(
+    `/competitions/competition-dates/${fx.competitionDateId}/sorteo/confirm`,
+    { assignments: [{ entryId: entry.data.id, series: "Final", lane: 1 }] },
+    regattaToken
+  );
+
+  // Saving FINISHED with no position now succeeds...
+  await withConflictRetry(() =>
     api.put(
       `/competitions/crew-entries/${entry.data.id}/result`,
-      { resultCode: "FINISHED" },
+      { resultCode: "FINISHED", time: "3:45.20" },
+      regattaToken
+    )
+  );
+  const result = await getResult(fx, entry.data.id, club1Token);
+  expect(result?.resultCode).toBe("FINISHED");
+  expect(result?.position).toBeNull();
+
+  // ...but confirm-block now refuses to confirm while it's still missing one.
+  await expect(
+    api.post(
+      "/competitions/crew-entries/confirm-block",
+      { competitionDateId: fx.competitionDateId, eventId: fx.eventId, series: "Final" },
       regattaToken
     )
   ).rejects.toMatchObject({ status: 400 } satisfies Partial<ApiError>);
@@ -142,12 +173,163 @@ test("a result can be set while the date is still INSCRIPTION_OPEN, not just IN_
   const club1Token = await loginAs(fx.club1.delegateEmail, fx.club1.delegatePassword);
   const entry = await createEntry(fx, club1Token);
 
-  await api.put(
-    `/competitions/crew-entries/${entry.data.id}/result`,
-    { resultCode: "FINISHED", position: 1 },
-    regattaToken
+  await withConflictRetry(() =>
+    api.put(
+      `/competitions/crew-entries/${entry.data.id}/result`,
+      { resultCode: "FINISHED", position: 1 },
+      regattaToken
+    )
   );
 
   const result = await getResult(fx, entry.data.id, club1Token);
   expect(result?.resultCode).toBe("FINISHED");
+});
+
+/**
+ * Referee-president exclusivity — publishing (confirm-block / finalize the
+ * date) is gated to the referee assigned as CompetitionDate.refereePresidentId,
+ * plus regatta managers. Any referee can view/load results (GET .../all,
+ * PUT .../result) — that part stays open to the whole role, see the tests
+ * above. Ownership is enforced in ConfirmBlockUseCase and
+ * CompetitionDateController.transitionStatus (not in the route guard, which
+ * only checks role).
+ */
+
+test("REFEREE can list all inscriptions for a competition date (GET .../all) @tier0", async () => {
+  const adminToken = await apiLoginAs("ADMIN");
+  const fx = await setupInscriptionFixtures(adminToken);
+  const refereeToken = await loginAs(fx.referee.email, fx.referee.password);
+
+  const res = await api.get(
+    `/competitions/crew-entries/all?competitionDateId=${fx.competitionDateId}`,
+    refereeToken
+  );
+  expect(res).toBeTruthy();
+});
+
+test("the assigned referee president can confirm a block @tier0", async () => {
+  const adminToken = await apiLoginAs("ADMIN");
+  const regattaToken = await apiLoginAs("REGATTA_COMMISSION");
+  const fx = await setupInscriptionFixtures(adminToken);
+  const club1Token = await loginAs(fx.club1.delegateEmail, fx.club1.delegatePassword);
+  const refereeToken = await loginAs(fx.referee.email, fx.referee.password);
+
+  const entry = await createEntry(fx, club1Token);
+  await api.put(
+    `/competitions/competition-dates/${fx.competitionDateId}`,
+    { refereePresidentId: fx.referee.userId },
+    regattaToken
+  );
+  await api.post(
+    `/competitions/competition-dates/${fx.competitionDateId}/sorteo/confirm`,
+    { assignments: [{ entryId: entry.data.id, series: "Final", lane: 1 }] },
+    regattaToken
+  );
+  await withConflictRetry(() =>
+    api.put(
+      `/competitions/crew-entries/${entry.data.id}/result`,
+      { resultCode: "FINISHED", position: 1, time: "3:45.20" },
+      regattaToken
+    )
+  );
+
+  await api.post(
+    "/competitions/crew-entries/confirm-block",
+    { competitionDateId: fx.competitionDateId, eventId: fx.eventId, series: "Final" },
+    refereeToken
+  );
+
+  const result = await getResult(fx, entry.data.id, club1Token);
+  expect(result?.resultCode).toBe("FINISHED");
+});
+
+test("a referee who is NOT the assigned president cannot confirm a block @tier0", async () => {
+  const adminToken = await apiLoginAs("ADMIN");
+  const regattaToken = await apiLoginAs("REGATTA_COMMISSION");
+  const fx = await setupInscriptionFixtures(adminToken);
+  const club1Token = await loginAs(fx.club1.delegateEmail, fx.club1.delegatePassword);
+  // The generic seeded REFEREE account — a different user than fx.referee,
+  // which is the one about to be assigned as president below.
+  const otherRefereeToken = await apiLoginAs("REFEREE");
+
+  const entry = await createEntry(fx, club1Token);
+  await api.put(
+    `/competitions/competition-dates/${fx.competitionDateId}`,
+    { refereePresidentId: fx.referee.userId },
+    regattaToken
+  );
+  await api.post(
+    `/competitions/competition-dates/${fx.competitionDateId}/sorteo/confirm`,
+    { assignments: [{ entryId: entry.data.id, series: "Final", lane: 1 }] },
+    regattaToken
+  );
+  await withConflictRetry(() =>
+    api.put(
+      `/competitions/crew-entries/${entry.data.id}/result`,
+      { resultCode: "FINISHED", position: 1, time: "3:45.20" },
+      regattaToken
+    )
+  );
+
+  await expect(
+    api.post(
+      "/competitions/crew-entries/confirm-block",
+      { competitionDateId: fx.competitionDateId, eventId: fx.eventId, series: "Final" },
+      otherRefereeToken
+    )
+  ).rejects.toMatchObject({ status: 403 } satisfies Partial<ApiError>);
+});
+
+test("the assigned referee president can finalize the competition date @tier0", async () => {
+  const adminToken = await apiLoginAs("ADMIN");
+  const fx = await setupInscriptionFixtures(adminToken, { advanceToClosed: true });
+  const refereeToken = await loginAs(fx.referee.email, fx.referee.password);
+
+  // Manually forcing CLOSED -> IN_COMPETITION is ADMIN-only (competition-date.controller.ts:217).
+  await api.patch(
+    `/competitions/competition-dates/${fx.competitionDateId}/status`,
+    { status: "IN_COMPETITION" },
+    adminToken
+  );
+
+  await api.patch(
+    `/competitions/competition-dates/${fx.competitionDateId}/status`,
+    { status: "FINAL_RESULTS" },
+    refereeToken
+  );
+});
+
+test("a referee who is NOT the assigned president cannot finalize the competition date @tier0", async () => {
+  const adminToken = await apiLoginAs("ADMIN");
+  const fx = await setupInscriptionFixtures(adminToken, { advanceToClosed: true });
+  const otherRefereeToken = await apiLoginAs("REFEREE");
+
+  // Manually forcing CLOSED -> IN_COMPETITION is ADMIN-only (competition-date.controller.ts:217).
+  await api.patch(
+    `/competitions/competition-dates/${fx.competitionDateId}/status`,
+    { status: "IN_COMPETITION" },
+    adminToken
+  );
+
+  await expect(
+    api.patch(
+      `/competitions/competition-dates/${fx.competitionDateId}/status`,
+      { status: "FINAL_RESULTS" },
+      otherRefereeToken
+    )
+  ).rejects.toMatchObject({ status: 403 } satisfies Partial<ApiError>);
+});
+
+test("a referee cannot perform non-finalize status transitions, even as the assigned president @tier0", async () => {
+  const adminToken = await apiLoginAs("ADMIN");
+  const fx = await setupInscriptionFixtures(adminToken);
+  const refereeToken = await loginAs(fx.referee.email, fx.referee.password);
+
+  await expect(
+    api.patch(
+      `/competitions/competition-dates/${fx.competitionDateId}/status`,
+      { status: "IN_REVIEW" },
+      refereeToken
+    )
+  ).rejects.toMatchObject({ status: 403 } satisfies Partial<ApiError>);
 });

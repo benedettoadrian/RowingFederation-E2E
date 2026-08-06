@@ -13,12 +13,13 @@ import { FIXTURE_PASSWORD } from "../../fixtures/lib/config.js";
  *
  * Director-role (PRESIDENT/VICE_PRESIDENT/...) and ADMIN/FEDERATION_ADMIN
  * golden-path creation is NOT re-tested here in isolation: fixtures/seed.ts
- * already creates one of every one of the 11 roles through this same real
+ * already creates one of every one of the 12 roles through this same real
  * endpoint, and the whole suite depends on that succeeding — a regression
  * there fails every test, not silently. This file focuses on the 4
  * business-rule boundaries, which seeding alone doesn't exercise, plus a
- * golden-path check for the two roles with no seed-state conflicts
- * (REGATTA_COMMISSION, REFEREE) and CLUB_DELEGATE under its 2-per-club cap.
+ * golden-path check for the roles with no seed-state conflicts
+ * (REGATTA_COMMISSION, REFEREE, COMMUNICATIONS) and CLUB_DELEGATE under its
+ * 2-per-club cap.
  */
 
 function userPayload(role: string, extra: Record<string, unknown> = {}) {
@@ -119,7 +120,7 @@ test("R-ROLE-004: allows 2 CLUB_DELEGATE per club, rejects the 3rd @tier0", asyn
   ).rejects.toMatchObject({ status: 400 } satisfies Partial<ApiError>);
 });
 
-for (const role of ["REGATTA_COMMISSION", "REFEREE"]) {
+for (const role of ["REGATTA_COMMISSION", "REFEREE", "COMMUNICATIONS"]) {
   test(`golden path: creates a ${role} user @tier0`, async () => {
     const token = await apiLoginAs("ADMIN");
     const created = await api.post<{ data: { id: string; roles: string[] } }>(

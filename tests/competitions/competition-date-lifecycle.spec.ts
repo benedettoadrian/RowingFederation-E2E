@@ -16,14 +16,19 @@ import { setupCompetitionDateFixtures, competitionDatePayload } from "../../fixt
 //   IN_COMPETITION -> FINAL_RESULTS
 //   FINAL_RESULTS, CANCELLED -> [] (terminal)
 // Extra rule on top of the table: IN_REVIEW -> CLOSED also requires
-// refereePresidentId to already be set on the entity, or it 400s even
-// though the transition table itself allows it.
+// refereePresidentId AND both crewChangeWindowOpensAt/ClosesAt to already be
+// set on the entity, or it 400s even though the transition table itself
+// allows it (competition-date-status.service.ts).
 
 // PATCH .../status responds { success, message } with no `data` (verified
 // against competition-date.controller.ts:152) — status is confirmed via a
 // follow-up GET, not the transition response itself.
+// Manually forcing CLOSED -> IN_COMPETITION is ADMIN-only (see
+// competition-date.controller.ts:217) — every other transition accepts
+// REGATTA_COMMISSION, so callers only need to switch tokens for this one.
 async function transition(id: string, status: string, token: string) {
-  return api.patch(`/competitions/competition-dates/${id}/status`, { status }, token);
+  const actingToken = status === "IN_COMPETITION" ? await apiLoginAs("ADMIN") : token;
+  return api.patch(`/competitions/competition-dates/${id}/status`, { status }, actingToken);
 }
 
 // CompetitionDate.date is unique DB-wide (not per-club) — a random offset
@@ -64,13 +69,21 @@ test.describe.serial("full status chain: DRAFT through FINAL_RESULTS", () => {
     const { credentials } = loadFixtures();
     const fixtures = await setupCompetitionDateFixtures(token);
 
+    const opensAt = new Date();
+    opensAt.setUTCDate(opensAt.getUTCDate() - 1);
+    const closesAt = new Date();
+    closesAt.setUTCDate(closesAt.getUTCDate() + 1);
+
     const created = await api.post<{ data: { id: string } }>(
       "/competitions/competition-dates",
-      // refereePresidentId set at creation — IN_REVIEW -> CLOSED requires
-      // it already present, and there's no separate endpoint verified for
-      // setting it after the fact, so it's simplest to provide it upfront.
+      // refereePresidentId + crew-change window set at creation — IN_REVIEW
+      // -> CLOSED requires both already present, and there's no separate
+      // endpoint verified for setting them after the fact, so it's simplest
+      // to provide them upfront.
       competitionDatePayload(fixtures, randomDaysFromNow(), {
         refereePresidentId: credentials.REFEREE.userId,
+        crewChangeWindowOpensAt: opensAt.toISOString(),
+        crewChangeWindowClosesAt: closesAt.toISOString(),
       }),
       token
     );
@@ -92,7 +105,7 @@ test.describe.serial("full status chain: DRAFT through FINAL_RESULTS", () => {
     expect(await getStatus(dateId, token)).toBe("IN_REVIEW");
   });
 
-  test("IN_REVIEW -> CLOSED (refereePresidentId already set) @tier0", async () => {
+  test("IN_REVIEW -> CLOSED (refereePresidentId + crew-change window already set) @tier0", async () => {
     await transition(dateId, "CLOSED", token);
     expect(await getStatus(dateId, token)).toBe("CLOSED");
   });
@@ -117,9 +130,42 @@ test.describe.serial("full status chain: DRAFT through FINAL_RESULTS", () => {
 test("IN_REVIEW -> CLOSED fails without a refereePresidentId set @tier0", async () => {
   const token = await apiLoginAs("REGATTA_COMMISSION");
   const fixtures = await setupCompetitionDateFixtures(token);
+  const opensAt = new Date();
+  opensAt.setUTCDate(opensAt.getUTCDate() - 1);
+  const closesAt = new Date();
+  closesAt.setUTCDate(closesAt.getUTCDate() + 1);
   const created = await api.post<{ data: { id: string } }>(
     "/competitions/competition-dates",
-    competitionDatePayload(fixtures, randomDaysFromNow()), // no refereePresidentId
+    // no refereePresidentId — crew-change window IS set, to isolate this
+    // test to only the referee gate (not both gates at once).
+    competitionDatePayload(fixtures, randomDaysFromNow(), {
+      crewChangeWindowOpensAt: opensAt.toISOString(),
+      crewChangeWindowClosesAt: closesAt.toISOString(),
+    }),
+    token
+  );
+  const dateId = created.data.id;
+
+  await transition(dateId, "PUBLISHED", token);
+  await transition(dateId, "INSCRIPTION_OPEN", token);
+  await transition(dateId, "IN_REVIEW", token);
+
+  await expect(transition(dateId, "CLOSED", token)).rejects.toMatchObject({
+    status: 400,
+  } satisfies Partial<ApiError>);
+});
+
+test("IN_REVIEW -> CLOSED fails without a crew-change window set @tier0", async () => {
+  const token = await apiLoginAs("REGATTA_COMMISSION");
+  const { credentials } = loadFixtures();
+  const fixtures = await setupCompetitionDateFixtures(token);
+  const created = await api.post<{ data: { id: string } }>(
+    "/competitions/competition-dates",
+    // refereePresidentId IS set, to isolate this test to only the
+    // crew-change-window gate (not both gates at once).
+    competitionDatePayload(fixtures, randomDaysFromNow(), {
+      refereePresidentId: credentials.REFEREE.userId,
+    }),
     token
   );
   const dateId = created.data.id;

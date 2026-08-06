@@ -68,7 +68,7 @@ test("rejects inscribing an ineligible (PENDING_APPROVAL) athlete @tier0", async
       firstSurname: "Athlete",
       gender: "MALE",
       birthdate: "2000-01-01",
-      nationality: "Uruguay",
+      nationality: "UY",
       documentType: "PASSPORT",
       documentNumber: `P${randomUUID().replace(/-/g, "").slice(0, 8).toUpperCase()}`,
       currentClubId: fx.club1Id,
