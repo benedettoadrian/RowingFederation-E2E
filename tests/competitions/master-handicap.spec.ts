@@ -1,6 +1,6 @@
 import { test, expect } from "@playwright/test";
 import { apiLoginAs } from "../../fixtures/auth.js";
-import { api, ApiError } from "../../fixtures/lib/api.js";
+import { api, ApiError, withConflictRetry } from "../../fixtures/lib/api.js";
 import { setupInscriptionFixtures } from "../../fixtures/lib/competitions.js";
 
 /**
@@ -22,26 +22,10 @@ async function loginAs(email: string, password: string): Promise<string> {
 // upsertResult runs inside a Serializable transaction (crew-entry.repository.impl.ts)
 // so it can abort with a "CONFLICT: transaction conflict, please retry" 400 under
 // concurrent load on the crew_entry_results table — expected/documented behavior,
-// the client is meant to retry, not a sign either request was wrong.
-async function putResultWithRetry(
-  path: string,
-  body: unknown,
-  token: string,
-  attempts = 5
-): Promise<unknown> {
-  for (let i = 0; i < attempts; i++) {
-    try {
-      return await api.put(path, body, token);
-    } catch (error) {
-      const isLastAttempt = i === attempts - 1;
-      const isConflict = error instanceof ApiError && error.status === 400 && /CONFLICT/.test(String(error.body));
-      if (!isConflict || isLastAttempt) throw error;
-      // Small backoff so a still-in-flight contending transaction has time to
-      // clear before the next attempt, instead of retrying back-to-back into
-      // the same collision under sustained parallel load.
-      await new Promise((r) => setTimeout(r, 100 * (i + 1)));
-    }
-  }
+// the client is meant to retry, not a sign either request was wrong. See
+// withConflictRetry in fixtures/lib/api.ts (shared with results.spec.ts).
+function putResultWithRetry(path: string, body: unknown, token: string): Promise<unknown> {
+  return withConflictRetry(() => api.put(path, body, token));
 }
 
 interface EntryWithMasterResult {
@@ -160,6 +144,11 @@ async function setupMasterRace(adminToken: string, regattaToken: string) {
 }
 
 test("golden path: save net times -> calculate handicap -> confirm block, older crew's handicap can flip the placing @tier0", async () => {
+  // Two sequential putResultWithRetry calls, each up to ~20s worst-case
+  // under sustained full-suite contention (withConflictRetry's wall-clock
+  // budget) — the 60s global default isn't quite enough for that plus the
+  // rest of the flow.
+  test.setTimeout(90_000);
   const adminToken = await apiLoginAs("ADMIN");
   const regattaToken = await apiLoginAs("REGATTA_COMMISSION");
   const { fx, entry1, entry2, club1Token, club2Token } = await setupMasterRace(adminToken, regattaToken);
@@ -203,6 +192,7 @@ test("golden path: save net times -> calculate handicap -> confirm block, older 
 });
 
 test("calculate-master-handicap refuses to recalculate an already-confirmed block @tier0", async () => {
+  test.setTimeout(90_000);
   const adminToken = await apiLoginAs("ADMIN");
   const regattaToken = await apiLoginAs("REGATTA_COMMISSION");
   const { fx, entry1, entry2 } = await setupMasterRace(adminToken, regattaToken);

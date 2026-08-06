@@ -6,9 +6,19 @@ export default defineConfig({
   fullyParallel: true,
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 1 : 0,
-  workers: process.env.CI ? 2 : undefined,
+  // Uncapped local workers (this machine: 10 cores) throws that many
+  // concurrent connections at a single lightweight e2e-postgres container —
+  // real root cause of the sustained (not momentary) Postgres SSI
+  // "transaction conflict" bursts on crew_entry_results that
+  // withConflictRetry has to absorb. Capping concurrency here reduces the
+  // actual write pressure instead of just inflating retry budgets to
+  // outlast an unbounded one.
+  workers: process.env.CI ? 2 : 4,
   reporter: process.env.CI ? [["github"], ["html", { open: "never" }]] : "list",
-  timeout: 30_000,
+  // withConflictRetry (fixtures/lib/api.ts) can legitimately wait up to 30s
+  // on a Serializable "transaction conflict" before giving up — the default
+  // 30s was too tight even for a single such call plus normal setup.
+  timeout: 45_000,
   use: {
     baseURL: APP_URL,
     trace: "retain-on-failure",
@@ -17,8 +27,30 @@ export default defineConfig({
   },
   projects: [
     {
-      name: "chromium",
+      // ocr-http-client.service.ts's circuit breaker is in-process singleton
+      // state on the backend, shared across the whole test run — any other
+      // file's concurrent successful OCR call landing between this test's 5
+      // forced failures resets the counter via recordSuccess(). Isolating it
+      // in its own project + `dependencies` below guarantees Playwright runs
+      // it to completion with nothing else in flight, instead of relying on
+      // luck/retries.
+      name: "chromium-serial",
+      // ocr-circuit-breaker.spec.ts: see comment above. locale-render.spec.ts's
+      // public-page tests do real SSR data-fetching against the backend on
+      // every request (live competition status, medal counts, club count,
+      // news, history) — queued behind ~190 concurrent API-hammering tests
+      // in the main project, first-paint can blow well past the 30s test
+      // timeout. Neither is an app bug; both just need to run without that
+      // contention.
+      testMatch: [/ocr-circuit-breaker\.spec\.ts/, /locale-render\.spec\.ts/],
+      fullyParallel: false,
       use: { ...devices["Desktop Chrome"] },
+    },
+    {
+      name: "chromium",
+      testIgnore: [/ocr-circuit-breaker\.spec\.ts/, /locale-render\.spec\.ts/],
+      use: { ...devices["Desktop Chrome"] },
+      dependencies: ["chromium-serial"],
     },
   ],
 });

@@ -45,6 +45,28 @@ async function withRetry<T>(fn: () => Promise<T>, attempts = 3): Promise<T> {
   throw new Error("unreachable");
 }
 
+/**
+ * For the "exactly one wins" tests below: the same SSI false-conflict risk
+ * described above can, rarely, take out BOTH sides of the intentional 2-way
+ * race at once (0 fulfilled) instead of exactly one â€” an unrelated
+ * transaction elsewhere in the suite loses to both, rather than either side
+ * losing to the other. Nothing commits when that happens, so the whole race
+ * is safe to replay. `makeCalls` is a thunk (not the promises themselves) so
+ * a retry re-issues fresh requests instead of re-awaiting settled ones.
+ */
+async function raceExactlyOneWins<T>(
+  makeCalls: () => Promise<T>[],
+  attempts = 2
+): Promise<PromiseSettledResult<T>[]> {
+  let results: PromiseSettledResult<T>[] = [];
+  for (let i = 0; i < attempts; i++) {
+    results = await Promise.allSettled(makeCalls());
+    const fulfilled = results.filter((r) => r.status === "fulfilled");
+    if (fulfilled.length > 0 || i === attempts - 1) return results;
+  }
+  return results;
+}
+
 async function createReferee(adminToken: string, label: string) {
   const email = `referee-${label}@e2e.test`;
   const password = "E2eTest123";
@@ -308,7 +330,7 @@ test("two lanchas racing to claim the SAME race â€” exactly one wins @tier0", as
   await assignPost(regattaToken, fx.competitionDateId, refereeX.userId, "LANCHA", 1);
   await assignPost(regattaToken, fx.competitionDateId, refereeY.userId, "LANCHA", 2);
 
-  const results = await Promise.allSettled([
+  const results = await raceExactlyOneWins(() => [
     api.post(`/competitions/race-executions/${raceA.id}/claim`, {}, refereeX.token),
     api.post(`/competitions/race-executions/${raceA.id}/claim`, {}, refereeY.token),
   ]);
@@ -329,7 +351,7 @@ test("two lanchas racing to claim TWO DIFFERENT races on the same date â€” exact
   await assignPost(regattaToken, fx.competitionDateId, refereeX.userId, "LANCHA", 1);
   await assignPost(regattaToken, fx.competitionDateId, refereeY.userId, "LANCHA", 2);
 
-  const results = await Promise.allSettled([
+  const results = await raceExactlyOneWins(() => [
     api.post(`/competitions/race-executions/${raceA.id}/claim`, {}, refereeX.token),
     api.post(`/competitions/race-executions/${raceB.id}/claim`, {}, refereeY.token),
   ]);
@@ -508,7 +530,7 @@ test("two mesa de llegada referees assigning the SAME mark to different boats â€
     mesaX.token
   );
 
-  const results = await Promise.allSettled([
+  const results = await raceExactlyOneWins(() => [
     api.post(`/competitions/finish-marks/${mark.data.id}/assign`, { crewEntryId: entry1.data.id }, mesaX.token),
     api.post(`/competitions/finish-marks/${mark.data.id}/assign`, { crewEntryId: entry2.data.id }, mesaY.token),
   ]);
@@ -545,7 +567,7 @@ test("two mesa de llegada referees assigning DIFFERENT marks to the SAME boat â€
     mesaX.token
   );
 
-  const results = await Promise.allSettled([
+  const results = await raceExactlyOneWins(() => [
     api.post(`/competitions/finish-marks/${markA.data.id}/assign`, { crewEntryId: entry1.data.id }, mesaX.token),
     api.post(`/competitions/finish-marks/${markB.data.id}/assign`, { crewEntryId: entry1.data.id }, mesaY.token),
   ]);
@@ -581,7 +603,7 @@ test("Mesa de Llegada assigning FINISHED and Control de Pista rejecting the same
   // upsertResult's Serializable transaction on the same CrewEntryResult row.
   // Whichever loses must surface as a retry-safe 409, never a silent/lost
   // write, and the row must never end up in a corrupted mixed state.
-  const results = await Promise.allSettled([
+  const results = await raceExactlyOneWins(() => [
     api.post<{ data: { position: number } }>(
       `/competitions/finish-marks/${mark.data.id}/assign`,
       { crewEntryId: entry1.data.id },

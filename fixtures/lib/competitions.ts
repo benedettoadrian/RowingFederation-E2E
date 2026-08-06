@@ -98,12 +98,22 @@ export function competitionDatePayload(
   };
 }
 
+const ABBREVIATION_ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+
 async function createClub(adminToken: string, label: string) {
   // Fresh entropy per call, independent of `label` — abbreviation is only
-  // 3-5 chars (regex ^[A-Z0-9]+$), and deriving it from a shared suffix
-  // truncated to 4 chars collided under parallel test execution (~14 club
-  // creations per run, birthday-paradox territory at 16^4 combinations).
-  const abbreviation = randomUUID().replace(/-/g, "").slice(0, 5).toUpperCase();
+  // 3-5 chars (regex ^[A-Z0-9]+$). A previous fix moved this off a
+  // shared-suffix derivation (16^4 space, collided under parallel
+  // execution) to a per-call randomUUID hex slice — but hex only draws
+  // from 16 of the 36 chars the schema actually allows (0-9A-F vs
+  // 0-9A-Z), leaving the 16^5 ≈ 1.05M space still collision-prone at
+  // full-suite volume (~4% chance across a few hundred club creations,
+  // birthday paradox). Drawing from the full A-Z0-9 alphabet instead
+  // gets 36^5 ≈ 60.5M — the maximum entropy the 5-char cap allows.
+  const abbreviation = Array.from(
+    { length: 5 },
+    () => ABBREVIATION_ALPHABET[Math.floor(Math.random() * ABBREVIATION_ALPHABET.length)]
+  ).join("");
   const club = await api.post<{ data: { id: string } }>(
     "/clubs",
     {

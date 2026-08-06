@@ -1,6 +1,6 @@
 import { test, expect } from "@playwright/test";
 import { apiLoginAs } from "../../fixtures/auth.js";
-import { api, ApiError } from "../../fixtures/lib/api.js";
+import { api, ApiError, withConflictRetry } from "../../fixtures/lib/api.js";
 import { setupInscriptionFixtures } from "../../fixtures/lib/competitions.js";
 
 /**
@@ -69,10 +69,12 @@ test("golden path: REGATTA_COMMISSION sets a FINISHED result @tier0", async () =
 
   const entry = await createEntry(fx, club1Token);
 
-  await api.put(
-    `/competitions/crew-entries/${entry.data.id}/result`,
-    { resultCode: "FINISHED", position: 1, time: "3:45.20" },
-    regattaToken
+  await withConflictRetry(() =>
+    api.put(
+      `/competitions/crew-entries/${entry.data.id}/result`,
+      { resultCode: "FINISHED", position: 1, time: "3:45.20" },
+      regattaToken
+    )
   );
 
   const result = await getResult(fx, entry.data.id, club1Token);
@@ -88,10 +90,8 @@ test("REFEREE can also set a result @tier0", async () => {
 
   const entry = await createEntry(fx, club1Token);
 
-  await api.put(
-    `/competitions/crew-entries/${entry.data.id}/result`,
-    { resultCode: "DNS" },
-    refereeToken
+  await withConflictRetry(() =>
+    api.put(`/competitions/crew-entries/${entry.data.id}/result`, { resultCode: "DNS" }, refereeToken)
   );
 
   const result = await getResult(fx, entry.data.id, club1Token);
@@ -141,10 +141,12 @@ test("FINISHED result no longer requires a position at save time — the gate mo
   );
 
   // Saving FINISHED with no position now succeeds...
-  await api.put(
-    `/competitions/crew-entries/${entry.data.id}/result`,
-    { resultCode: "FINISHED", time: "3:45.20" },
-    regattaToken
+  await withConflictRetry(() =>
+    api.put(
+      `/competitions/crew-entries/${entry.data.id}/result`,
+      { resultCode: "FINISHED", time: "3:45.20" },
+      regattaToken
+    )
   );
   const result = await getResult(fx, entry.data.id, club1Token);
   expect(result?.resultCode).toBe("FINISHED");
@@ -171,10 +173,12 @@ test("a result can be set while the date is still INSCRIPTION_OPEN, not just IN_
   const club1Token = await loginAs(fx.club1.delegateEmail, fx.club1.delegatePassword);
   const entry = await createEntry(fx, club1Token);
 
-  await api.put(
-    `/competitions/crew-entries/${entry.data.id}/result`,
-    { resultCode: "FINISHED", position: 1 },
-    regattaToken
+  await withConflictRetry(() =>
+    api.put(
+      `/competitions/crew-entries/${entry.data.id}/result`,
+      { resultCode: "FINISHED", position: 1 },
+      regattaToken
+    )
   );
 
   const result = await getResult(fx, entry.data.id, club1Token);
@@ -221,10 +225,12 @@ test("the assigned referee president can confirm a block @tier0", async () => {
     { assignments: [{ entryId: entry.data.id, series: "Final", lane: 1 }] },
     regattaToken
   );
-  await api.put(
-    `/competitions/crew-entries/${entry.data.id}/result`,
-    { resultCode: "FINISHED", position: 1, time: "3:45.20" },
-    regattaToken
+  await withConflictRetry(() =>
+    api.put(
+      `/competitions/crew-entries/${entry.data.id}/result`,
+      { resultCode: "FINISHED", position: 1, time: "3:45.20" },
+      regattaToken
+    )
   );
 
   await api.post(
@@ -257,10 +263,12 @@ test("a referee who is NOT the assigned president cannot confirm a block @tier0"
     { assignments: [{ entryId: entry.data.id, series: "Final", lane: 1 }] },
     regattaToken
   );
-  await api.put(
-    `/competitions/crew-entries/${entry.data.id}/result`,
-    { resultCode: "FINISHED", position: 1, time: "3:45.20" },
-    regattaToken
+  await withConflictRetry(() =>
+    api.put(
+      `/competitions/crew-entries/${entry.data.id}/result`,
+      { resultCode: "FINISHED", position: 1, time: "3:45.20" },
+      regattaToken
+    )
   );
 
   await expect(
