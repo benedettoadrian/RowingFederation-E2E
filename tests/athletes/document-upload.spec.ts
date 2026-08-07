@@ -1,7 +1,7 @@
 import { test, expect } from "@playwright/test";
 import { randomUUID } from "node:crypto";
 import { apiLoginAs, loadFixtures } from "../../fixtures/auth.js";
-import { api, TINY_PNG_BASE64 } from "../../fixtures/lib/api.js";
+import { api, ApiError, TINY_PNG_BASE64 } from "../../fixtures/lib/api.js";
 
 /**
  * Fase 4.4 — identity document upload triggers OCR (async, fire-and-forget:
@@ -9,8 +9,12 @@ import { api, TINY_PNG_BASE64 } from "../../fixtures/lib/api.js";
  * REVIEW result lands later in the background). ocr-stub/server.ts mirrors
  * the real RowingFederation-OCR contract and branches purely on whether
  * documentNumber contains "OCRFAIL" — no real image content is inspected
- * anywhere in this path (backend fileFilter only checks mimetype/
- * extension), so a minimal 1x1 PNG is enough for both cases.
+ * for the OCR-match outcome (backend fileFilter only checks mimetype/
+ * extension), so a minimal 1x1 PNG is enough for both cases. The
+ * image-quality pre-check (upload-identity-doc.use-case.ts, calling
+ * POST /validate-image before anything is saved) is a separate,
+ * synchronous, blocking step — the stub branches that one on the uploaded
+ * filename containing "BADIMG" instead, since it runs before OCR entirely.
  */
 
 interface RequirementsResponse {
@@ -37,11 +41,15 @@ async function pollUntilNotProcessing(
   throw new Error(`OCR processing did not settle within ${maxWaitMs}ms`);
 }
 
-function pngFormData(documentNumber: string, emissionDate: string): FormData {
+function pngFormData(
+  documentNumber: string,
+  emissionDate: string,
+  filenames: { front: string; back: string } = { front: "front.png", back: "back.png" }
+): FormData {
   const bytes = Buffer.from(TINY_PNG_BASE64, "base64");
   const form = new FormData();
-  form.append("front", new Blob([bytes], { type: "image/png" }), "front.png");
-  form.append("back", new Blob([bytes], { type: "image/png" }), "back.png");
+  form.append("front", new Blob([bytes], { type: "image/png" }), filenames.front);
+  form.append("back", new Blob([bytes], { type: "image/png" }), filenames.back);
   form.append("emissionDate", emissionDate);
   // Backend requires expirationDate for athletes under 60 (server-side
   // mirror of the Frontend's age-based requirement — see
@@ -104,4 +112,59 @@ test("identity doc upload resolves to REVIEW when OCR can't match @tier0", async
 
   const finalStatus = await pollUntilNotProcessing(athleteId, token);
   expect(finalStatus).toBe("REVIEW");
+});
+
+test("identity doc upload is rejected outright when the front photo fails the image-quality check, before OCR ever runs @tier0", async () => {
+  const { clubs } = loadFixtures();
+  // FEDERATION_ADMIN (not ADMIN, unlike the two tests above): the
+  // documentUploadRateLimiter (20 req/15min under NODE_ENV=production,
+  // which this E2E stack deliberately runs with) is keyed per-user — ADMIN
+  // is already reused across ocr-circuit-breaker.spec.ts (7 calls),
+  // nationality-eligibility.spec.ts and others, close enough to the ceiling
+  // that adding these 2 tests under ADMIN tripped a real 429 in practice.
+  const token = await apiLoginAs("FEDERATION_ADMIN");
+  const documentNumber = `M${randomUUID().slice(0, 8)}`;
+  const athleteId = await createAthlete(token, clubs.club1, documentNumber);
+
+  const rejection: unknown = await api
+    .postMultipart(
+      `/athletes/${athleteId}/requirements/identity-doc`,
+      pngFormData(documentNumber, "2020-01-01", { front: "BADIMG-front.png", back: "back.png" }),
+      token
+    )
+    .catch((e) => e);
+
+  expect(rejection).toBeInstanceOf(ApiError);
+  const error = rejection as ApiError;
+  expect(error.status).toBe(400);
+  const body = error.body as { error?: { details?: { reason?: string; side?: string } } };
+  expect(body.error?.details?.reason).toBe("IMAGE_QUALITY_REJECTED");
+  expect(body.error?.details?.side).toBe("front");
+
+  // Rejected at the pre-check — nothing was ever saved, so the record stays
+  // at its pristine PENDING_UPLOAD state instead of PROCESSING/REVIEW.
+  const requirements = await api.get<RequirementsResponse>(
+    `/athletes/${athleteId}/requirements`,
+    token
+  );
+  expect(requirements.data.identityDoc.status).toBe("PENDING_UPLOAD");
+});
+
+test("identity doc upload is rejected when the back photo fails the image-quality check @tier0", async () => {
+  const { clubs } = loadFixtures();
+  const token = await apiLoginAs("FEDERATION_ADMIN"); // see comment on the test above
+  const documentNumber = `M${randomUUID().slice(0, 8)}`;
+  const athleteId = await createAthlete(token, clubs.club1, documentNumber);
+
+  const rejection: unknown = await api
+    .postMultipart(
+      `/athletes/${athleteId}/requirements/identity-doc`,
+      pngFormData(documentNumber, "2020-01-01", { front: "front.png", back: "BADIMG-back.png" }),
+      token
+    )
+    .catch((e) => e);
+
+  expect(rejection).toBeInstanceOf(ApiError);
+  const body = (rejection as ApiError).body as { error?: { details?: { side?: string } } };
+  expect(body.error?.details?.side).toBe("back");
 });

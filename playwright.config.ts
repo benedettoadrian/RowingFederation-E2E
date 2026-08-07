@@ -5,15 +5,26 @@ export default defineConfig({
   testDir: "./tests",
   fullyParallel: true,
   forbidOnly: !!process.env.CI,
-  retries: process.env.CI ? 1 : 0,
-  // Uncapped local workers (this machine: 10 cores) throws that many
-  // concurrent connections at a single lightweight e2e-postgres container —
-  // real root cause of the sustained (not momentary) Postgres SSI
-  // "transaction conflict" bursts on crew_entry_results that
-  // withConflictRetry has to absorb. Capping concurrency here reduces the
-  // actual write pressure instead of just inflating retry budgets to
-  // outlast an unbounded one.
-  workers: process.env.CI ? 2 : 4,
+  // One retry everywhere, not just CI: a Serializable "transaction
+  // conflict" that survives withConflictRetry's own 30s budget is a real,
+  // documented, transient infra condition (Postgres SSI abort under
+  // concurrent writes), not a correctness bug — retrying the whole test
+  // once is the standard, honest way to absorb that, on top of (not
+  // instead of) reducing the actual write pressure below.
+  retries: 1,
+  // Local workers used to be uncapped-ish (4, vs CI's already-safer 2) on
+  // the theory that "the isolated files handle their own contention." That
+  // theory broke: even inside the isolated project, different FILES still
+  // ran concurrently across workers (fullyParallel:false only serializes
+  // WITHIN one file — see chromium-serial's own `workers: 1` below for the
+  // fix that project needed), and outside it, more workers is directly more
+  // concurrent connections hammering one lightweight e2e-postgres
+  // container — the real root cause of the sustained (not momentary)
+  // Postgres SSI "transaction conflict" bursts on crew_entry_results /
+  // referee_work_assignments that withConflictRetry has to absorb. Matching
+  // CI's value everywhere reduces the actual write pressure suite-wide
+  // instead of only reactively isolating the next file that flakes.
+  workers: 2,
   reporter: process.env.CI ? [["github"], ["html", { open: "never" }]] : "list",
   // withConflictRetry (fixtures/lib/api.ts) can legitimately wait up to 30s
   // on a Serializable "transaction conflict" before giving up — the default
@@ -63,6 +74,17 @@ export default defineConfig({
         /competitions\/live-operations\.spec\.ts/,
       ],
       fullyParallel: false,
+      // `fullyParallel: false` only serializes tests WITHIN a single file —
+      // different files in this same project (e.g. results.spec.ts and
+      // master-handicap.spec.ts, both isolated here specifically to avoid
+      // contending with EACH OTHER on crew_entry_results) still ran on
+      // separate workers concurrently, defeating the whole point. `workers:
+      // 1` is Playwright's documented per-project override for exactly
+      // this: a project whose tests "share state and therefore cannot be
+      // executed in parallel." Confirmed the gap once fullyParallel:false
+      // alone still let master-handicap.spec.ts hit a live Serializable
+      // conflict from another concurrently-running file in this project.
+      workers: 1,
       use: { ...devices["Desktop Chrome"] },
     },
     {
