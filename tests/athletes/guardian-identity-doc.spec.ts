@@ -1,7 +1,7 @@
 import { test, expect } from "@playwright/test";
 import { randomUUID } from "node:crypto";
 import { apiLoginAs, loadFixtures } from "../../fixtures/auth.js";
-import { api, TINY_PNG_BASE64 } from "../../fixtures/lib/api.js";
+import { api, ApiError, TINY_PNG_BASE64 } from "../../fixtures/lib/api.js";
 
 /**
  * T02/OCR-2 — guardian identity document, required only for minor athletes.
@@ -35,11 +35,14 @@ async function pollUntilGuardianNotProcessing(
   throw new Error(`Guardian doc OCR processing did not settle within ${maxWaitMs}ms`);
 }
 
-function guardianFormData(documentNumber: string): FormData {
+function guardianFormData(
+  documentNumber: string,
+  filenames: { front: string; back: string } = { front: "front.png", back: "back.png" }
+): FormData {
   const bytes = Buffer.from(TINY_PNG_BASE64, "base64");
   const form = new FormData();
-  form.append("front", new Blob([bytes], { type: "image/png" }), "front.png");
-  form.append("back", new Blob([bytes], { type: "image/png" }), "back.png");
+  form.append("front", new Blob([bytes], { type: "image/png" }), filenames.front);
+  form.append("back", new Blob([bytes], { type: "image/png" }), filenames.back);
   form.append("emissionDate", "2020-01-01");
   form.append("expirationDate", "2033-01-01");
   form.append("guardianFirstName", "Ana");
@@ -175,4 +178,60 @@ test("a reviewer can approve a guardian document stuck in REVIEW @tier0", async 
 
   const res = await api.get<RequirementsResponse>(`/athletes/${athleteId}/requirements`, token);
   expect(res.data.guardianDoc.status).toBe("APPROVED");
+});
+
+test("guardian doc upload is rejected outright when the front photo fails the image-quality check, before OCR ever runs @tier0", async () => {
+  const { clubs } = loadFixtures();
+  // FEDERATION_ADMIN, not ADMIN — see document-upload.spec.ts's identical
+  // comment: the shared ADMIN account is already close to
+  // documentUploadRateLimiter's ceiling from other files in this suite.
+  const token = await apiLoginAs("FEDERATION_ADMIN");
+  const documentNumber = `M${randomUUID().slice(0, 8)}`;
+  const athleteId = await createAthlete(token, clubs.club1, documentNumber, "2015-01-01");
+
+  const rejection: unknown = await api
+    .postMultipart(
+      `/athletes/${athleteId}/requirements/guardian-identity-doc`,
+      guardianFormData(`G${randomUUID().slice(0, 8)}`, {
+        front: "BADIMG-front.png",
+        back: "back.png",
+      }),
+      token
+    )
+    .catch((e) => e);
+
+  expect(rejection).toBeInstanceOf(ApiError);
+  const body = (rejection as ApiError).body as {
+    error?: { details?: { reason?: string; side?: string } };
+  };
+  expect(body.error?.details?.reason).toBe("IMAGE_QUALITY_REJECTED");
+  expect(body.error?.details?.side).toBe("front");
+
+  const requirements = await api.get<RequirementsResponse>(
+    `/athletes/${athleteId}/requirements`,
+    token
+  );
+  expect(requirements.data.guardianDoc.status).toBe("PENDING_UPLOAD");
+});
+
+test("guardian doc upload is rejected when the back photo fails the image-quality check @tier0", async () => {
+  const { clubs } = loadFixtures();
+  const token = await apiLoginAs("FEDERATION_ADMIN");
+  const documentNumber = `M${randomUUID().slice(0, 8)}`;
+  const athleteId = await createAthlete(token, clubs.club1, documentNumber, "2015-01-01");
+
+  const rejection: unknown = await api
+    .postMultipart(
+      `/athletes/${athleteId}/requirements/guardian-identity-doc`,
+      guardianFormData(`G${randomUUID().slice(0, 8)}`, {
+        front: "front.png",
+        back: "BADIMG-back.png",
+      }),
+      token
+    )
+    .catch((e) => e);
+
+  expect(rejection).toBeInstanceOf(ApiError);
+  const body = (rejection as ApiError).body as { error?: { details?: { side?: string } } };
+  expect(body.error?.details?.side).toBe("back");
 });
