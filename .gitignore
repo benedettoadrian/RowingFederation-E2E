@@ -7,3 +7,7 @@ fixtures/credentials.json
 .env
 .env.local
 *.log
+.DS_Store
+# Real identity-document photos dropped here for manual OCR-service
+# debugging (2026-08-06) — never commit real PII/document scans.
+img/
