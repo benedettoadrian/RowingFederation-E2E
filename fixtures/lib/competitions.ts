@@ -158,6 +158,9 @@ export async function setupInscriptionFixtures(
     // for both makes every crew the same age — useless for handicap math,
     // which only does anything interesting when ages differ).
     isMaster?: boolean;
+    // Novicio-category fixture (see [[fur-novice-category-eligibility-plan]])
+    // — mutually exclusive with isMaster in practice (no test needs both).
+    isNovice?: boolean;
     club1AthleteBirthdate?: string;
     club2AthleteBirthdate?: string;
   } = {}
@@ -217,10 +220,11 @@ export async function setupInscriptionFixtures(
   const ageCategory = await api.post<{ data: { id: string } }>(
     "/competitions/age-categories",
     {
-      name: `${opts.isMaster ? "MASTER" : "SENIOR"}-${randomUUID().replace(/-/g, "").slice(0, 8).toUpperCase()}`,
-      minAge: opts.isMaster ? 27 : 19,
+      name: `${opts.isMaster ? "MASTER" : opts.isNovice ? "NOVICIOS" : "SENIOR"}-${randomUUID().replace(/-/g, "").slice(0, 8).toUpperCase()}`,
+      minAge: opts.isMaster ? 27 : opts.isNovice ? 0 : 19,
       maxAge: null,
       ...(opts.isMaster && { isMaster: true }),
+      ...(opts.isNovice && { isNovice: true }),
     },
     regattaToken
   );
