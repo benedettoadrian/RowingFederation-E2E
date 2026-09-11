@@ -11,3 +11,8 @@ fixtures/credentials.json
 # Real identity-document photos dropped here for manual OCR-service
 # debugging (2026-08-06) — never commit real PII/document scans.
 img/
+
+# Recipe/output data extracted from real local-dev competition data by the
+# scripts/e2e-simulations/* scripts — contains real athlete names/birthdates,
+# never commit.
+scripts/e2e-simulations/output/
