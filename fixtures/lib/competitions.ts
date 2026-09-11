@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { api } from "./api.js";
-import { apiLoginAs } from "../auth.js";
+import { apiLoginAs, createUserAndResetPassword } from "../auth.js";
 
 /**
  * A fresh dev DB has zero clubs/pistas/programs (prisma/seeds/dev-seed.ts
@@ -172,18 +172,17 @@ export async function setupInscriptionFixtures(
   // refereePresidentId already set, per competition-date-status.service.ts)
   // — created unconditionally is cheap and keeps this block simple.
   const refereeEmail = `referee-${suffix}@e2e.test`;
-  const referee = await api.post<{ data: { id: string } }>(
-    "/users",
+  const referee = await createUserAndResetPassword(
+    adminToken,
     {
       email: refereeEmail,
-      password: "E2eTest123",
       firstName: "Referee",
       lastName: suffix,
       birthDate: "1980-01-01",
       gender: "MALE",
       role: "REFEREE",
     },
-    adminToken
+    "E2eTest123"
   );
 
   const club1Id = await createClub(adminToken, `${suffix}A`);
@@ -303,7 +302,7 @@ export async function setupInscriptionFixtures(
     30 + Math.floor(Math.random() * 500_000),
     {
       ...(opts.advanceToClosed && {
-        refereePresidentId: referee.data.id,
+        refereePresidentId: referee.id,
         crewChangeWindowOpensAt: crewChangeWindowOpensAt.toISOString(),
         crewChangeWindowClosesAt: crewChangeWindowClosesAt.toISOString(),
       }),
@@ -339,11 +338,10 @@ export async function setupInscriptionFixtures(
 
   async function createDelegateAndAthlete(clubId: string, label: string, athleteBirthdate?: string) {
     const email = `delegate-${label}@e2e.test`;
-    const delegateCreated = await api.post<{ data: { id: string } }>(
-      "/users",
+    const delegateCreated = await createUserAndResetPassword(
+      adminToken,
       {
         email,
-        password: "E2eTest123",
         firstName: "Delegate",
         lastName: label,
         birthDate: "1990-01-01",
@@ -351,7 +349,7 @@ export async function setupInscriptionFixtures(
         role: "CLUB_DELEGATE",
         clubId,
       },
-      adminToken
+      "E2eTest123"
     );
 
     const athleteCreated = await api.post<{ data: { id: string } }>(
@@ -371,9 +369,9 @@ export async function setupInscriptionFixtures(
     );
 
     return {
-      delegateUserId: delegateCreated.data.id,
+      delegateUserId: delegateCreated.id,
       delegateEmail: email,
-      delegatePassword: "E2eTest123",
+      delegatePassword: delegateCreated.password,
       athleteId: athleteCreated.data.id,
     };
   }
@@ -396,9 +394,9 @@ export async function setupInscriptionFixtures(
     club1: club1Fixtures,
     club2: club2Fixtures,
     referee: {
-      userId: referee.data.id,
+      userId: referee.id,
       email: refereeEmail,
-      password: "E2eTest123",
+      password: referee.password,
     },
   };
 }

@@ -1,6 +1,6 @@
 import { test, expect } from "@playwright/test";
 import { randomUUID } from "node:crypto";
-import { apiLoginAs } from "../../fixtures/auth.js";
+import { apiLoginAs, createUserAndResetPassword } from "../../fixtures/auth.js";
 import { api, ApiError } from "../../fixtures/lib/api.js";
 import { setupInscriptionFixtures } from "../../fixtures/lib/competitions.js";
 
@@ -30,11 +30,10 @@ test("two CLUB_DELEGATE users of the same club see each other's inscriptions (cr
   const delegateAToken = await loginAs(fx.club1.delegateEmail, fx.club1.delegatePassword);
 
   const delegateBEmail = `delegate-b-${suffix}@e2e.test`;
-  await api.post(
-    "/users",
+  const delegateB = await createUserAndResetPassword(
+    adminToken,
     {
       email: delegateBEmail,
-      password: "E2eTest123",
       firstName: "DelegateB",
       lastName: suffix,
       birthDate: "1990-01-01",
@@ -42,9 +41,9 @@ test("two CLUB_DELEGATE users of the same club see each other's inscriptions (cr
       role: "CLUB_DELEGATE",
       clubId: fx.club1Id,
     },
-    adminToken
+    "E2eTest123"
   );
-  const delegateBToken = await loginAs(delegateBEmail, "E2eTest123");
+  const delegateBToken = await loginAs(delegateBEmail, delegateB.password);
 
   const entry = await api.post<{ data: { id: string } }>(
     "/competitions/crew-entries",

@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { test, expect } from "@playwright/test";
-import { apiLoginAs } from "../../fixtures/auth.js";
+import { apiLoginAs, createUserAndResetPassword } from "../../fixtures/auth.js";
 import { api, ApiError, withConflictRetry } from "../../fixtures/lib/api.js";
 import { setupInscriptionFixtures } from "../../fixtures/lib/competitions.js";
 
@@ -69,22 +69,20 @@ async function raceExactlyOneWins<T>(
 
 async function createReferee(adminToken: string, label: string) {
   const email = `referee-${label}@e2e.test`;
-  const password = "E2eTest123";
-  const created = await api.post<{ data: { id: string } }>(
-    "/users",
+  const created = await createUserAndResetPassword(
+    adminToken,
     {
       email,
-      password,
       firstName: "Referee",
       lastName: label,
       birthDate: "1980-01-01",
       gender: "MALE",
       role: "REFEREE",
     },
-    adminToken
+    "E2eTest123"
   );
-  const token = await loginAs(email, password);
-  return { userId: created.data.id, email, password, token };
+  const token = await loginAs(email, created.password);
+  return { userId: created.id, email, password: created.password, token };
 }
 
 async function assignPost(

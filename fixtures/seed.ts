@@ -141,6 +141,25 @@ async function main() {
 
     const created = await api.post<CreatedUser>("/users", payload, adminToken);
     fixture.userId = created.data.id;
+
+    // create-user.use-case.ts sets mustResetPassword=true for every admin-created
+    // user (real security feature — the temp password is single-use by design).
+    // Login itself is whitelisted, but every other endpoint 403s with
+    // PASSWORD_RESET_REQUIRED until the reset is completed — so do that now,
+    // right after creation, instead of leaving every fixture identity unusable
+    // for the rest of the suite.
+    const freshLogin = await api.post<AuthResponse>("/auth/login", {
+      email: fixture.email,
+      password: fixture.password,
+    });
+    const resetPassword = `${FIXTURE_PASSWORD}Reset1`;
+    await api.post<{ success: boolean }>(
+      `/users/${fixture.userId}/complete-forced-reset`,
+      { newPassword: resetPassword },
+      freshLogin.data.accessToken
+    );
+    fixture.password = resetPassword;
+
     console.log(`  ${role} -> ${fixture.email} (${created.data.id})`);
   }
 

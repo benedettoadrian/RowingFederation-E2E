@@ -68,3 +68,40 @@ export async function apiLoginAs(role: RoleKey): Promise<string> {
   });
   return login.data.accessToken;
 }
+
+/**
+ * Creates a user via the real /users API (same as any other test-created
+ * fixture user) and immediately completes their forced password reset.
+ *
+ * create-user.use-case.ts sets mustResetPassword=true for every
+ * admin-created user (real security feature — the temp password is
+ * single-use by design). Every endpoint except /auth/login and this reset
+ * endpoint 403s with PASSWORD_RESET_REQUIRED until it's completed, so a
+ * fixture user created this way and never reset is unusable for anything
+ * beyond the creation call itself. Returns the password to actually log in
+ * with afterward (NOT the temp one passed in).
+ */
+export async function createUserAndResetPassword(
+  adminToken: string,
+  payload: Record<string, unknown> & { email: string },
+  tempPassword: string
+): Promise<{ id: string; password: string }> {
+  const created = await api.post<{ data: { id: string } }>(
+    "/users",
+    { ...payload, password: tempPassword },
+    adminToken
+  );
+
+  const login = await api.post<{ data: { accessToken: string } }>("/auth/login", {
+    email: payload.email,
+    password: tempPassword,
+  });
+  const newPassword = `${tempPassword}Reset1`;
+  await api.post<{ success: boolean }>(
+    `/users/${created.data.id}/complete-forced-reset`,
+    { newPassword },
+    login.data.accessToken
+  );
+
+  return { id: created.data.id, password: newPassword };
+}

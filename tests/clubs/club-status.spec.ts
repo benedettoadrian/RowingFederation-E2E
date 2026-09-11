@@ -1,6 +1,6 @@
 import { test, expect } from "@playwright/test";
 import { randomUUID } from "node:crypto";
-import { apiLoginAs } from "../../fixtures/auth.js";
+import { apiLoginAs, createUserAndResetPassword } from "../../fixtures/auth.js";
 import { api, ApiError } from "../../fixtures/lib/api.js";
 
 /**
@@ -41,11 +41,10 @@ async function createClubWithDelegate(adminToken: string) {
   const clubId = club.data.id;
 
   const email = `delegate-status-${suffix}@e2e.test`;
-  await api.post(
-    "/users",
+  const delegate = await createUserAndResetPassword(
+    adminToken,
     {
       email,
-      password: "E2eTest123",
       firstName: "Status",
       lastName: suffix,
       birthDate: "1990-01-01",
@@ -53,11 +52,11 @@ async function createClubWithDelegate(adminToken: string) {
       role: "CLUB_DELEGATE",
       clubId,
     },
-    adminToken
+    "E2eTest123"
   );
   const login = await api.post<{ data: { accessToken: string } }>("/auth/login", {
     email,
-    password: "E2eTest123",
+    password: delegate.password,
   });
 
   return { clubId, delegateToken: login.data.accessToken };
