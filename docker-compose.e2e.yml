@@ -53,7 +53,10 @@ services:
   # the backend as NODE_ENV=production for real here — see the `backend`
   # service comment below for why that matters beyond storage.
   minio:
-    image: minio/minio:latest
+    # Docker Hub no longer allows anonymous pulls of minio/minio or
+    # minio/mc ("pull access denied") — MinIO's official quay.io mirror
+    # is the drop-in replacement, same images/tags.
+    image: quay.io/minio/minio:latest
     container_name: e2e-minio
     command: server /data --console-address ":9001"
     environment:
@@ -75,7 +78,7 @@ services:
   # default and exits. `backend` waits on this completing, not on `minio`
   # directly, so the bucket is guaranteed to exist before the app starts.
   minio-init:
-    image: minio/mc:latest
+    image: quay.io/minio/mc:latest
     container_name: e2e-minio-init
     depends_on:
       minio:
