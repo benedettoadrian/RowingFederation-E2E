@@ -1,6 +1,6 @@
 import { test, expect } from "@playwright/test";
 import { randomUUID } from "node:crypto";
-import { apiLoginAs, loginAs as loginAsUi } from "../../fixtures/auth.js";
+import { apiLoginAs, loginAs as loginAsUi, createUserAndResetPassword } from "../../fixtures/auth.js";
 import { api, ApiError } from "../../fixtures/lib/api.js";
 import {
   setupInscriptionFixtures,
@@ -336,11 +336,10 @@ test("rejects a Mixed crew that isn't 50/50 for a Master event under the World R
   await api.patch(`/competitions/competition-dates/${date.data.id}/status`, { status: "INSCRIPTION_OPEN" }, regattaToken);
 
   const delegateEmail = `delegate-mix-${suffix}@e2e.test`;
-  await api.post(
-    "/users",
+  const delegate = await createUserAndResetPassword(
+    adminToken,
     {
       email: delegateEmail,
-      password: "E2eTest123",
       firstName: "Delegate",
       lastName: suffix,
       birthDate: "1990-01-01",
@@ -348,9 +347,9 @@ test("rejects a Mixed crew that isn't 50/50 for a Master event under the World R
       role: "CLUB_DELEGATE",
       clubId: cdFixtures.clubId,
     },
-    adminToken
+    "E2eTest123"
   );
-  const delegateToken = await loginAs(delegateEmail, "E2eTest123");
+  const delegateToken = await loginAs(delegateEmail, delegate.password);
 
   const maleAthlete = await api.post<{ data: { id: string } }>(
     "/athletes",

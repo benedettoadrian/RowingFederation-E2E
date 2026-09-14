@@ -1,6 +1,6 @@
 import { test, expect } from "@playwright/test";
 import { randomUUID } from "node:crypto";
-import { apiLoginAs } from "../../fixtures/auth.js";
+import { apiLoginAs, createUserAndResetPassword } from "../../fixtures/auth.js";
 import { api, TINY_PNG_BASE64 } from "../../fixtures/lib/api.js";
 
 /**
@@ -180,28 +180,29 @@ test.describe("Institutional Documents — Manuales (role-scoped)", () => {
     // A fresh user, created with a single role then given a second one —
     // mirrors a real board member who also referees.
     const email = `multi-role-${suffix}@e2e.test`;
-    const password = "E2eTest123";
-    const created = await api.post<{ data: { id: string } }>(
-      "/users",
+    const created = await createUserAndResetPassword(
+      adminToken,
       {
         email,
-        password,
         firstName: "Multi",
         lastName: "Role",
         birthDate: "1985-01-01",
         gender: "MALE",
         role: "REGATTA_COMMISSION",
       },
-      adminToken
+      "E2eTest123"
     );
 
     await api.post(
-      `/users/${created.data.id}/assign-role`,
+      `/users/${created.id}/assign-role`,
       { roles: ["REGATTA_COMMISSION", "REFEREE"] },
       adminToken
     );
 
-    const login = await api.post<{ data: { accessToken: string } }>("/auth/login", { email, password });
+    const login = await api.post<{ data: { accessToken: string } }>("/auth/login", {
+      email,
+      password: created.password,
+    });
     const multiRoleToken = login.data.accessToken;
 
     const refereeManual = await api.get<{ data: { slug: string } }>(
