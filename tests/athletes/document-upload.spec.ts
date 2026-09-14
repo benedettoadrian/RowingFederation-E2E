@@ -168,3 +168,50 @@ test("identity doc upload is rejected when the back photo fails the image-qualit
   const body = (rejection as ApiError).body as { error?: { details?: { side?: string } } };
   expect(body.error?.details?.side).toBe("back");
 });
+
+/**
+ * Fase 2 (RowingFederation-OCR) — VLM fallback tier. The real model is
+ * never exercised here (that's RowingFederation-OCR's own test suite,
+ * validated against real production images — see its CHANGELOG); this only
+ * proves the Backend correctly threads extractionSource through to the
+ * audit trail when the OCR service reports a document was resolved by the
+ * fallback instead of the fast EasyOCR pass. ocr-stub/server.ts returns
+ * MATCHED + extractionSource: "vlm" whenever documentNumber contains
+ * "OCRVLM".
+ */
+test("identity doc resolved by the VLM fallback tier is audit-logged with extractionEngine: vlm @tier0", async () => {
+  const { clubs } = loadFixtures();
+  const token = await apiLoginAs("ADMIN");
+  const documentNumber = `OCRVLM${randomUUID().slice(0, 3)}`;
+  const athleteId = await createAthlete(token, clubs.club1, documentNumber);
+
+  await api.postMultipart(
+    `/athletes/${athleteId}/requirements/identity-doc`,
+    pngFormData(documentNumber, "2020-01-01"),
+    token
+  );
+
+  const finalStatus = await pollUntilNotProcessing(athleteId, token);
+  expect(finalStatus).toBe("APPROVED");
+
+  const requirements = await api.get<{ data: { id: string } }>(
+    `/athletes/${athleteId}/requirements`,
+    token
+  );
+
+  interface AuditLogsResponse {
+    data: {
+      auditLogs: Array<{ action: string; changes: Record<string, any> }>;
+    };
+  }
+
+  const logs = await api.get<AuditLogsResponse>(
+    `/audit-logs/entity/AthleteRequirements/${requirements.data.id}`,
+    token
+  );
+  const ocrLog = logs.data.auditLogs.find(
+    (l) => l.action === "STATUS_CHANGE" && l.changes.entityData?.documentType === "identityDoc"
+  );
+  expect(ocrLog).toBeDefined();
+  expect(ocrLog?.changes.entityData?.extractionEngine).toBe("vlm");
+});

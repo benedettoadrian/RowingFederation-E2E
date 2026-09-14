@@ -22,6 +22,15 @@
  *     (a real HTTP failure, unlike OCRFAIL's 200/REVIEW — needed to drive
  *     ocr-http-client.service.ts's circuit breaker, which only counts
  *     non-2xx/timeout/connection-error as a failure via recordFailure())
+ *   - documentNumber containing "OCRVLM"          -> /extract-document returns
+ *     MATCHED with extractionSource: "vlm" — simulates the real OCR
+ *     service's Fase 2 fallback tier (see RowingFederation-OCR's
+ *     services/vlm_extractor.py) resolving a document the fast EasyOCR
+ *     pass alone couldn't. This stub never runs an actual model; it only
+ *     needs to prove the Backend correctly threads extractionSource
+ *     through to the audit trail (entityData.extractionEngine) — the real
+ *     VLM's own accuracy is validated separately, against real production
+ *     images, in RowingFederation-OCR's own test suite and CHANGELOG.
  */
 import express from "express";
 import multer from "multer";
@@ -73,6 +82,7 @@ app.post("/extract-document", upload.single("file"), (req, res) => {
   }
 
   const forceReview = documentNumber.includes("OCRFAIL");
+  const forceVlmResolved = documentNumber.includes("OCRVLM");
 
   const extracted = {
     documentNumber,
@@ -110,6 +120,7 @@ app.post("/extract-document", upload.single("file"), (req, res) => {
     },
     reviewReason: null,
     rawText: null,
+    ...(forceVlmResolved && { extractionSource: "vlm" }),
   });
 });
 
