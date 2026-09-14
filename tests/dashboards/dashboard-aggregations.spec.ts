@@ -194,6 +194,43 @@ test("clubs activity-ranking: rejects a CLUB_DELEGATE @tier0", async () => {
   } satisfies Partial<ApiError>);
 });
 
+// ── Atletas por club y estado (Admin dashboard) ─────────────────────────────
+
+test("clubs athlete-status-breakdown: covers every club, ordered alphabetically, totals match the per-status breakdown @tier0", async () => {
+  const adminToken = await apiLoginAs("ADMIN");
+  const result = await api.get<{
+    data: {
+      clubId: string;
+      clubName: string;
+      totalAthletes: number;
+      pendingApproval: number;
+      active: number;
+      inactive: number;
+      suspended: number;
+    }[];
+  }>("/clubs/athlete-status-breakdown", adminToken);
+
+  expect(Array.isArray(result.data)).toBe(true);
+  expect(result.data.length).toBeGreaterThan(0);
+
+  for (const club of result.data) {
+    expect(club.totalAthletes).toBe(
+      club.pendingApproval + club.active + club.inactive + club.suspended
+    );
+  }
+
+  const names = result.data.map((c) => c.clubName);
+  const sortedNames = [...names].sort((a, b) => a.localeCompare(b));
+  expect(names).toEqual(sortedNames);
+});
+
+test("clubs athlete-status-breakdown: rejects a CLUB_DELEGATE @tier0", async () => {
+  const delegateToken = await apiLoginAs("CLUB_DELEGATE");
+  await expect(api.get("/clubs/athlete-status-breakdown", delegateToken)).rejects.toMatchObject({
+    status: 403,
+  } satisfies Partial<ApiError>);
+});
+
 // ── Resumen ejecutivo del mes (Directorio) ──────────────────────────────────
 
 test("dashboard executive-summary: accessible to a Directorio role (PRESIDENT) @tier0", async () => {
