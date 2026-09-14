@@ -9,6 +9,18 @@ until merged, at which point the section is retitled with the merge date.
 ## [Unreleased]
 
 ### Added
+- `ocr-stub/server.ts`: new `OCRVLM` magic marker (documentNumber containing
+  it) — `/extract-document` returns `MATCHED` with `extractionSource: "vlm"`,
+  simulating RowingFederation-OCR's Fase 2 fallback tier resolving a
+  document the fast EasyOCR pass alone couldn't. The stub never runs an
+  actual model; it only needs to prove the Backend correctly threads
+  `extractionSource` through to the audit trail — the real VLM's own
+  accuracy is validated separately in RowingFederation-OCR's own test
+  suite and CHANGELOG, against real production images.
+- `tests/athletes/document-upload.spec.ts`: new test asserting an identity
+  doc resolved via the `OCRVLM` marker gets audit-logged with
+  `entityData.extractionEngine: "vlm"` on the `AthleteRequirements`
+  `STATUS_CHANGE` entry.
 - `tests/athletes/document-identity-change.spec.ts` — E2E coverage for the
   Backend's document-identity-change confirmation gate (documentType/
   documentNumber edits): rejects the change without
