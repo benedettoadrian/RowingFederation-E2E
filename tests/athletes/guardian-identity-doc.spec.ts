@@ -180,6 +180,55 @@ test("a reviewer can approve a guardian document stuck in REVIEW @tier0", async 
   expect(res.data.guardianDoc.status).toBe("APPROVED");
 });
 
+/**
+ * Guardian-doc review was centralized into the main "Revisiones Pendientes"
+ * queue (previously only reachable from the individual athlete's detail
+ * page) — GET /athletes/pending-reviews/guardian-doc, mirroring the
+ * identity-doc/swimming-consent/athlete-card siblings.
+ */
+test("a guardian doc stuck in REVIEW shows up in the centralized pending-reviews queue, and drops out once approved @tier0", async () => {
+  const { clubs } = loadFixtures();
+  const token = await apiLoginAs("ADMIN");
+  const documentNumber = `M${randomUUID().slice(0, 8)}`;
+  const athleteId = await createAthlete(token, clubs.club1, documentNumber, "2015-01-01");
+
+  await api.postMultipart(
+    `/athletes/${athleteId}/requirements/guardian-identity-doc`,
+    guardianFormData(`OCRFAIL${randomUUID().slice(0, 4)}`),
+    token
+  );
+  await pollUntilGuardianNotProcessing(athleteId, token);
+
+  interface PendingGuardianDocResponse {
+    data: Array<{
+      athleteId: string;
+      guardianDoc: { isRequired: boolean; status: string; firstName: string | null };
+    }>;
+  }
+
+  const pending = await api.get<PendingGuardianDocResponse>(
+    "/athletes/pending-reviews/guardian-doc",
+    token
+  );
+  const item = pending.data.find((i) => i.athleteId === athleteId);
+  expect(item).toBeDefined();
+  expect(item?.guardianDoc.isRequired).toBe(true);
+  expect(item?.guardianDoc.status).toBe("REVIEW");
+  expect(item?.guardianDoc.firstName).toBe("Ana");
+
+  await api.put(
+    `/athletes/${athleteId}/requirements/guardian-identity-doc/review`,
+    { action: "approve" },
+    token
+  );
+
+  const pendingAfter = await api.get<PendingGuardianDocResponse>(
+    "/athletes/pending-reviews/guardian-doc",
+    token
+  );
+  expect(pendingAfter.data.find((i) => i.athleteId === athleteId)).toBeUndefined();
+});
+
 test("guardian doc upload is rejected outright when the front photo fails the image-quality check, before OCR ever runs @tier0", async () => {
   const { clubs } = loadFixtures();
   // FEDERATION_ADMIN, not ADMIN — see document-upload.spec.ts's identical
