@@ -9,6 +9,17 @@ until merged, at which point the section is retitled with the merge date.
 ## [Unreleased]
 
 ### Added
+- `tests/dashboards/dashboard-aggregations.spec.ts`: coverage for the new
+  `GET /clubs/athlete-status-breakdown` endpoint — every club covered,
+  alphabetical order, per-status counts sum to the total; and a
+  CLUB_DELEGATE 403 rejection test mirroring the existing
+  `activity-ranking` pattern.
+- `docker-compose.e2e.yml`: `DOCUMENT_UPLOAD_RATE_LIMIT_MAX_OVERRIDE`
+  env var for `e2e-backend` — the document-upload rate limiter had no
+  override (unlike the login/public-form ones), so a full tier0+tier1
+  Playwright run tripped real 429s mid-suite once fixture users uploaded
+  more than 20 documents in one 15-min window. See Backend's own
+  CHANGELOG for the corresponding code fix.
 - `ocr-stub/server.ts`: new `OCRVLM` magic marker (documentNumber containing
   it) — `/extract-document` returns `MATCHED` with `extractionSource: "vlm"`,
   simulating RowingFederation-OCR's Fase 2 fallback tier resolving a

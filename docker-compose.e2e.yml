@@ -123,6 +123,12 @@ services:
       # login.spec.ts suite, which logs in as all 11 fixture roles from a
       # single IP in one run. Overridden here only — see env.config.ts.
       LOGIN_RATE_LIMIT_MAX_OVERRIDE: "1000"
+      # documentUploadRateLimiter is normally 20/15min/user in production —
+      # a full tier0+tier1 run uploads far more than that per fixture user
+      # (nationality-eligibility.spec.ts, document-identity-change.spec.ts,
+      # etc.) inside one window, tripping UPLOAD_RATE_LIMIT_EXCEEDED 429s
+      # mid-suite. Overridden here only — see env.config.ts.
+      DOCUMENT_UPLOAD_RATE_LIMIT_MAX_OVERRIDE: "1000"
       CLOUDFLARE_R2_ACCOUNT_ID: e2e
       CLOUDFLARE_R2_ACCESS_KEY_ID: e2eminioadmin
       CLOUDFLARE_R2_SECRET_ACCESS_KEY: e2eminioadmin
