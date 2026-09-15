@@ -6,7 +6,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Dates are UTC-3 (project local time). Entries are grouped under `[Unreleased]`
 until merged, at which point the section is retitled with the merge date.
 
-## [Unreleased]
+## [2026-09-15]
 
 ### Added
 - `tests/dashboards/dashboard-aggregations.spec.ts`: coverage for the new
