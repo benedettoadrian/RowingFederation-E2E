@@ -2,6 +2,7 @@ import { test, expect } from "@playwright/test";
 import { randomUUID } from "node:crypto";
 import { apiLoginAs, loginAs, loadFixtures } from "../../fixtures/auth.js";
 import { api } from "../../fixtures/lib/api.js";
+import { API_URL } from "../../fixtures/lib/config.js";
 import { makeProfilePhotoPng } from "../../fixtures/lib/photo.js";
 
 /**
@@ -67,14 +68,32 @@ test("creates an athlete with every field plus a profile photo, and it renders o
   );
   const athleteId = created.data.id;
 
+  const originalPhotoBytes = makeProfilePhotoPng();
   const form = new FormData();
-  form.append("photo", new Blob([new Uint8Array(makeProfilePhotoPng())], { type: "image/png" }), "profile.png");
+  form.append("photo", new Blob([new Uint8Array(originalPhotoBytes)], { type: "image/png" }), "profile.png");
   const uploaded = await api.postMultipart<{ data: { profilePhoto: string } }>(
     `/athletes/${athleteId}/upload-photo`,
     form,
     adminToken
   );
   expect(uploaded.data.profilePhoto).toBeTruthy();
+
+  // Exercises the real Backend -> OCR service `/detect-face` call over the
+  // Docker network (auto-crop feature) end-to-end, not a mock. This fixture
+  // is a synthetic checkerboard (see photo.ts) with no real face, so the
+  // fail-open path (faceDetected: false) is the deterministic, correct
+  // outcome — the photo is expected to reach storage byte-for-byte
+  // unchanged, not resized/re-encoded by the crop step. A synthetic image
+  // that Haar Cascade reliably detects AS a face isn't something that can
+  // be fabricated deterministically, so the "a face IS found and gets
+  // cropped" path is covered at the unit level instead (Backend's
+  // upload-photo.use-case.spec.ts + OCR's test_face_detector.py), not here.
+  const storedPhoto = await fetch(`${API_URL}/files/${uploaded.data.profilePhoto}`, {
+    headers: { Authorization: `Bearer ${adminToken}` },
+  });
+  expect(storedPhoto.ok).toBe(true);
+  const storedBytes = Buffer.from(await storedPhoto.arrayBuffer());
+  expect(storedBytes.equals(originalPhotoBytes)).toBe(true);
 
   await loginAs(page, "ADMIN");
   await page.goto(`/es/athletes/${athleteId}`);

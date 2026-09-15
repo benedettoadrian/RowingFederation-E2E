@@ -31,6 +31,12 @@
  *     through to the audit trail (entityData.extractionEngine) — the real
  *     VLM's own accuracy is validated separately, against real production
  *     images, in RowingFederation-OCR's own test suite and CHANGELOG.
+ *   - uploaded filename containing "FACEDETECTED"  -> /detect-face returns
+ *     a fixed bounding box instead of the default faceDetected: false.
+ *     Real Haar Cascade face detection is validated separately, against
+ *     synthetic and real cases, in RowingFederation-OCR's own
+ *     test_face_detector.py — this stub only needs to prove the Backend
+ *     correctly wires the call and applies the resulting crop.
  */
 import express from "express";
 import multer from "multer";
@@ -66,6 +72,15 @@ app.post("/validate-image", upload.single("file"), (req, res) => {
     return;
   }
   res.status(200).json({ status: "OK", issues: [], confidence: 0.95 });
+});
+
+app.post("/detect-face", upload.single("file"), (req, res) => {
+  const filename = req.file?.originalname ?? "";
+  if (filename.includes("FACEDETECTED")) {
+    res.status(200).json({ faceDetected: true, x: 40, y: 30, width: 80, height: 90 });
+    return;
+  }
+  res.status(200).json({ faceDetected: false });
 });
 
 app.post("/extract-document", upload.single("file"), (req, res) => {

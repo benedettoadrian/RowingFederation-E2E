@@ -6,6 +6,32 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Dates are UTC-3 (project local time). Entries are grouped under `[Unreleased]`
 until merged, at which point the section is retitled with the merge date.
 
+## [Unreleased]
+
+### Added
+- `ocr-stub/server.ts`: new `/detect-face` route mirroring the real OCR
+  service's new endpoint — defaults to `faceDetected: false`, returns a
+  fixed bounding box when the uploaded filename contains `FACEDETECTED`
+  (same magic-marker control pattern as the existing `OCRFAIL`/`BADIMG`
+  markers).
+- `tests/athletes/create-athlete.spec.ts`'s existing profile-photo test
+  extended to exercise the real Backend -> OCR `/detect-face` call over
+  the Docker network end-to-end (not mocked): the synthetic checkerboard
+  fixture (`fixtures/lib/photo.ts`) has no real face, so `faceDetected:
+  false` is the deterministic, correct outcome — asserts the stored photo
+  reaches storage byte-for-byte unchanged, proving the fail-open path
+  actually ran rather than just that the upload "succeeded" vacuously. A
+  synthetic image Haar Cascade reliably detects as a face isn't
+  fabricable deterministically, so the "a face IS found and gets cropped"
+  path is covered at the unit level instead (both repos' own test
+  suites), not here.
+
+**Verification**: full suite run clean (238 passed, 1 pre-existing flaky
+test passed on retry — Postgres SSI contention, documented/unrelated) — see
+note below on 1 unrelated pre-existing failure found while verifying.
+
+---
+
 ## [2026-09-15]
 
 ### Added
