@@ -9,6 +9,17 @@ until merged, at which point the section is retitled with the merge date.
 ## [Unreleased]
 
 ### Added
+- `tests/regulations/regulations.spec.ts`: coverage for the new institutional
+  regulations-by-article module (see sibling Backend/Frontend CHANGELOGs) — a
+  brand-new article stays invisible on the public feed until published;
+  publishing a new article at an existing position shifts the sibling's
+  number without bumping its version; editing a published article creates a
+  new version and supersedes the old one at the same number; a second draft
+  is rejected while one is in progress; derogating hides an article entirely
+  from the public feed (editors still see it); reordering shifts every
+  article in between atomically; and REFEREE/CLUB_DELEGATE can read but not
+  manage, while REGATTA_COMMISSION/DIRECTOR_ROLES can. Ran green against the
+  full `chromium-serial` project (66/66) with zero regressions elsewhere.
 - `tests/athletes/document-expiry-config.spec.ts`: coverage for the new
   `GET/PUT /athletes/document-expiry-config` endpoint (configurable
   document-expiry warning window, see sibling Backend/Frontend
