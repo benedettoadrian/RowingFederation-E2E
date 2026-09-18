@@ -9,6 +9,16 @@ until merged, at which point the section is retitled with the merge date.
 ## [Unreleased]
 
 ### Added
+- `tests/athletes/document-expiry-config.spec.ts`: coverage for the new
+  `GET/PUT /athletes/document-expiry-config` endpoint (configurable
+  document-expiry warning window, see sibling Backend/Frontend
+  CHANGELOGs) — GET defaults to 20 days, REGATTA_COMMISSION can update it
+  and the change is reflected in `/athletes/expiring-documents`'s new
+  `thresholdDays` field (both the implicit default and an explicit
+  `?daysAhead=` override), CLUB_DELEGATE is rejected (403) from writing
+  it, and out-of-range values (0, 400) are rejected (400). Resets the
+  config back to its original value in a `finally` block — it's global
+  singleton state shared across the whole E2E run.
 - `ocr-stub/server.ts`: new `/detect-face` route mirroring the real OCR
   service's new endpoint — defaults to `faceDetected: false`, returns a
   fixed bounding box when the uploaded filename contains `FACEDETECTED`
