@@ -9,6 +9,11 @@ until merged, at which point the section is retitled with the merge date.
 ## [Unreleased]
 
 ### Added
+- `tests/competitions/novice-eligibility.spec.ts`: new case for the Backend
+  bugfix (see sibling Backend CHANGELOG) — a Senior boat created and
+  withdrawn BEFORE the competition date is officially closed no longer
+  counts against an athlete's Novicio eligibility. Ran green against the
+  full suite on a freshly-seeded stack: 254/254 tests.
 - `tests/regulations/regulations.spec.ts`: coverage for the new institutional
   regulations-by-article module (see sibling Backend/Frontend CHANGELOGs) — a
   brand-new article stays invisible on the public feed until published;
