@@ -109,6 +109,25 @@ test("GET eligible-athletes previews the Novicio ineligibility reason before sub
   expect(row?.ineligibilityReason).toContain("Not eligible for Novicio");
 });
 
+test("a Senior boat created and withdrawn BEFORE the date closes does NOT count against Novicio eligibility @tier0", async () => {
+  // Regression for a real prod bug: a delegate loads a boat into the wrong
+  // event and withdraws it before the competition date is ever officially
+  // closed — that correction must not later block the athlete from
+  // Novicio. See [[fur-novice-category-eligibility-plan]] bugfix log.
+  const adminToken = await apiLoginAs("ADMIN");
+  const fx = await setupInscriptionFixtures(adminToken, { isNovice: true });
+  const token = await loginAs(fx.club1.delegateEmail, fx.club1.delegatePassword);
+
+  // Mistakenly inscribe into Senior, then immediately withdraw — the date
+  // is still INSCRIPTION_OPEN (fixture default), so this never became part
+  // of an official/closed program.
+  const mistaken = await createEntry(fx, fx.eventId2, token);
+  await api.delete(`/competitions/crew-entries/${mistaken.data.id}`, token);
+
+  const created = await createEntry(fx, fx.eventId, token);
+  expect(created.data.id).toBeTruthy();
+});
+
 test("rejects REPLACING a Novicio crew member with an athlete who has recent non-Novicio history @tier0", async () => {
   const adminToken = await apiLoginAs("ADMIN");
   const fx = await setupInscriptionFixtures(adminToken, { isNovice: true });
