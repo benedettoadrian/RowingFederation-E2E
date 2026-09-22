@@ -163,6 +163,10 @@ export async function setupInscriptionFixtures(
     isNovice?: boolean;
     club1AthleteBirthdate?: string;
     club2AthleteBirthdate?: string;
+    // Opt-in third event (hasHeats: true) for inscription-summary heats
+    // coverage — off by default so the ~20 existing callers of this fixture
+    // keep seeing exactly the same 2-event program they always have.
+    extraEventHasHeats?: boolean;
   } = {}
 ) {
   const suffix = randomUUID().slice(0, 8);
@@ -275,9 +279,43 @@ export async function setupInscriptionFixtures(
     regattaToken
   );
 
+  // Opt-in third event, hasHeats: true — needs its own age category for the
+  // same Event.code-uniqueness reason as event2 (same boat reused).
+  let event3: { data: { id: string } } | undefined;
+  if (opts.extraEventHasHeats) {
+    const ageCategory3 = await api.post<{ data: { id: string } }>(
+      "/competitions/age-categories",
+      {
+        name: `SENIOR-${randomUUID().replace(/-/g, "").slice(0, 8).toUpperCase()}`,
+        minAge: 19,
+        maxAge: null,
+      },
+      regattaToken
+    );
+    event3 = await api.post<{ data: { id: string } }>(
+      "/competitions/events",
+      {
+        name: `1x Senior Masculino C ${suffix}`,
+        boatId: boat.data.id,
+        ageCategoryId: ageCategory3.data.id,
+        gender: "MALE",
+        distance: 2000,
+        hasHeats: true,
+        ...(opts.scoresInCircuit && { scoresInCircuit: true }),
+      },
+      regattaToken
+    );
+  }
+
   await api.put(
     `/competitions/programs/${program.data.id}/events`,
-    { eventIds: [event.data.id, event2.data.id] },
+    {
+      eventIds: [
+        event.data.id,
+        event2.data.id,
+        ...(event3 ? [event3.data.id] : []),
+      ],
+    },
     regattaToken
   );
 
@@ -390,6 +428,7 @@ export async function setupInscriptionFixtures(
     date: datePayload.date,
     eventId: event.data.id,
     eventId2: event2.data.id,
+    eventId3: event3?.data.id,
     boatAthleteCount: 1,
     club1: club1Fixtures,
     club2: club2Fixtures,

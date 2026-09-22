@@ -9,6 +9,27 @@ until merged, at which point the section is retitled with the merge date.
 ## [Unreleased]
 
 ### Added
+- `tests/athletes/auto-inactivate-unengaged.spec.ts`: real end-to-end proof
+  that finalizing a `CompetitionDate` (real HTTP status-transition flow,
+  real referee auth) triggers the new auto-inactivate-unengaged-athletes
+  rule (see sibling Backend CHANGELOG) — a `PENDING_APPROVAL` athlete with
+  no participation flips to `INACTIVE` once the 2nd of 2
+  `FINAL_RESULTS` dates finalizes. The rule's "last 2 dates" scope is
+  global/shared system state, unsafe to assert deterministically against
+  other tests' dates — both dates here are pinned via `dateOverrides.date`
+  to year 4000+, safely beyond the ~1370-year random range
+  `setupInscriptionFixtures` uses by default, guaranteeing these two are
+  the system's most-recent FINAL_RESULTS dates regardless of what else is
+  running. `setupInscriptionFixtures` gained a new opt-in
+  `extraEventHasHeats` option (a 3rd, `hasHeats: true` event) for the
+  inscription-summary heats coverage below — off by default, the ~20
+  existing callers see the exact same 2-event program they always have.
+- `tests/competitions/inscription-summary.spec.ts`: `GET .../inscription-summary`
+  (see sibling Backend CHANGELOG) — per-club totals (rowers, boats, events),
+  one event with exactly 1 entry, one with none, and one 9-entry event
+  (`hasHeats: true`, 2 clubs) correctly computed as needing 2 heats via the
+  real `SorteoService` formula. Also confirms only regatta-manager roles
+  (not `CLUB_DELEGATE`) can call the endpoint.
 - `tests/competitions/novice-eligibility.spec.ts`: new case for the Backend
   bugfix (see sibling Backend CHANGELOG) — a Senior boat created and
   withdrawn BEFORE the competition date is officially closed no longer
