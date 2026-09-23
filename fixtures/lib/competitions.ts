@@ -420,6 +420,8 @@ export async function setupInscriptionFixtures(
   return {
     club1Id,
     club2Id,
+    pistaId: pista.data.id,
+    programId: program.data.id,
     competitionDateId,
     // The real date used (see the widened-range comment above the payload
     // build) — Master handicap FISA-age math is relative to this date's

@@ -9,6 +9,31 @@ until merged, at which point the section is retitled with the merge date.
 ## [Unreleased]
 
 ### Added
+- `tests/competitions/sorteo-final-to-heats.spec.ts` (3 tests, 2026-09-23 —
+  see sibling Backend/Frontend CHANGELOGs for the manual "pasar a
+  eliminatorias" feature): converting a direct final to heats splits it
+  2/1 and persists real "A"/"B" series through `sorteo/confirm` (never
+  "Final"); undoing a conversion restores the exact original final;
+  program recalculation after close succeeds for a prueba manually
+  confirmed as heat series even though `Event.hasHeats` stays false in the
+  database (the regression this feature's backend fix targets). No drag
+  simulation — convert/undo are plain button clicks, unlike the
+  drag-and-drop sorteo tests elsewhere in this suite.
+- `tests/competitions/sorteo-out-of-program.spec.ts` (6 tests, urgent
+  federation directive 2026-09-23 — see sibling Backend/Frontend
+  CHANGELOGs): rejects `outOfProgram` without `reviewMode` (403) and from a
+  CLUB_DELEGATE even with `reviewMode` forged in the body (403); direct
+  final places the out-of-program boat in the last lane, persisted through
+  `sorteo/confirm`; heats spreads two out-of-program boats one per heat,
+  each in the last lane of its heat; an out-of-program boat that finishes
+  1st never scores CircuitPoints and 2nd place is re-ranked to 1st's points
+  (against a real CIRCUIT championship, not mocked); and the review-mode
+  inscription form's checkbox persists the flag end to end (real UI, no
+  drag — the club-select interaction retries opening the dropdown up to
+  30s, since Next.js hydration can lag behind SSR under full-suite
+  concurrent load, causing a first click to land before the trigger is
+  actually interactive).
+
 - `tests/athletes/auto-inactivate-unengaged.spec.ts`: real end-to-end proof
   that finalizing a `CompetitionDate` (real HTTP status-transition flow,
   real referee auth) triggers the new auto-inactivate-unengaged-athletes
@@ -30,6 +55,25 @@ until merged, at which point the section is retitled with the merge date.
   (`hasHeats: true`, 2 clubs) correctly computed as needing 2 heats via the
   real `SorteoService` formula. Also confirms only regatta-manager roles
   (not `CLUB_DELEGATE`) can call the endpoint.
+- `tests/competitions/sorteo-heat-seeding.spec.ts`: end-to-end proof of the
+  heat-seeding-by-historical-podium-position feature (see sibling
+  Backend/Frontend CHANGELOGs) — builds a real PAST `FINAL_RESULTS` date
+  where two club1 boats and one club2 boat finish 1st/3rd/2nd (`series`
+  exactly `"Final"`, `resultCode: FINISHED`) in the same prueba, then
+  re-inscribes the same 3 boats (same club + same athlete, 1x identity) plus
+  filler entries into a CURRENT date to force the heats branch (pista
+  `maxLanes: 6`, 8 entries → 2 heats). Confirms via real UI: ADMIN sees
+  exactly 1 prueba-level seeding icon (redesigned mid-session from a
+  per-boat icon to a single per-prueba one after the user reviewed it
+  locally — see Backend/Frontend CHANGELOGs), and hovering it shows both
+  clubs and both rank tiers in the hover card. A second test confirms
+  `sorteo/preview` 403s a `CLUB_DELEGATE` — the same
+  `requiresRegattaManager()` guard the icon's role-gating depends on.
+  `setupInscriptionFixtures` now also returns `pistaId`/`programId` (needed
+  to build the second, past competition date reusing the exact same
+  `Event.id` — "same prueba" the feature keys off — via a second program
+  attached to it, additive change, no existing callers affected). Ran green
+  against a freshly-seeded stack alongside the full `@tier0` suite (59/59).
 - `tests/competitions/novice-eligibility.spec.ts`: new case for the Backend
   bugfix (see sibling Backend CHANGELOG) — a Senior boat created and
   withdrawn BEFORE the competition date is officially closed no longer
