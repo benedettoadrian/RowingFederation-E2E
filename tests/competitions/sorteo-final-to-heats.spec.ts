@@ -92,6 +92,9 @@ test("converts a direct final to heats (2 series by default), confirms, and pers
   await expect(page.getByText("SERIE B")).toBeVisible();
   await expect(page.getByText(/·\s*2\s*botes/)).toBeVisible();
   await expect(page.getByText(/·\s*1\s*bote(?!s)/)).toBeVisible();
+  // Sized to exactly the 3 real boats, not the pista's full lane cap — no
+  // leftover empty "—" placeholder lanes.
+  await expect(page.locator('text="—"')).toHaveCount(0);
   // "+ Agregar serie" now works on this prueba too, same as any real heats event.
   await expect(page.getByRole("button", { name: "Agregar serie" })).toBeVisible();
 
