@@ -9,6 +9,13 @@ until merged, at which point the section is retitled with the merge date.
 ## [Unreleased]
 
 ### Added
+- `tests/competitions/official-program-banner.spec.ts` (2026-09-24 — see
+  sibling Frontend CHANGELOG for the banner itself): absent before CLOSED,
+  visible with the right name + CTA href on the public home page and every
+  authenticated dashboard once CLOSED, gone again once IN_COMPETITION.
+  Pins the fixture's date 5-24 days out (below the default fixture's
+  30-day-plus random floor) to deterministically win the "nearest upcoming
+  CLOSED date" comparison against other tests' fixtures.
 - `tests/competitions/sorteo-qualification-note.spec.ts` (3 tests, 2026-09-24
   — see sibling Backend/Frontend CHANGELOGs for the per-event qualification
   note feature): write + persist-across-reload + clear-deletes-the-row

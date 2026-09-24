@@ -92,9 +92,13 @@ services:
     depends_on:
       s3-mock:
         condition: service_healthy
+    # No -f: idempotent by design (goal is "bucket exists", not "bucket was
+    # just created") — restarting the stack without wiping S3Mock's volume
+    # re-runs this against an already-existing bucket, which -f would treat
+    # as a hard failure and block `backend` from ever starting.
     entrypoint: >
       sh -c "
-        curl -sf -X PUT http://s3-mock:9090/fedururemo-e2e
+        curl -s -X PUT http://s3-mock:9090/fedururemo-e2e
       "
     networks:
       - e2e-network
