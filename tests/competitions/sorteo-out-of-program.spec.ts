@@ -344,12 +344,17 @@ test("review-mode inscription form: checking 'Fuera de programa' persists the fl
   );
 
   const clubOption = page.getByRole("option", { name: club1.data.name });
+  // Exact match — the unanchored /Club/i regex also matches every open
+  // dropdown option whose club name contains "Club" (e.g. "Club Audit
+  // f647ba6f"), which causes a strict-mode violation once enough clubs
+  // accumulate in a full-suite run.
+  const clubTrigger = page.getByLabel("Club", { exact: true });
   // Under full-suite concurrent load, Next.js hydration can lag behind the
   // SSR'd markup — a click that lands before the Select trigger is actually
   // interactive opens nothing, so retry the click until the option shows up
   // instead of trusting a single click to have worked.
   await expect(async () => {
-    await page.getByLabel(/Club/i).click();
+    await clubTrigger.click();
     await expect(clubOption).toBeVisible({ timeout: 3000 });
   }).toPass({ timeout: 30000 });
   await clubOption.click();
