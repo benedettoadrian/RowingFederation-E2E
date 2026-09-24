@@ -128,6 +128,21 @@ test passed on retry — Postgres SSI contention, documented/unrelated) — see
 note below on 1 unrelated pre-existing failure found while verifying.
 
 ### Fixed
+- **`docker-compose.e2e.yml`, CI-breaking (2026-09-24)**: `quay.io/minio/minio`
+  and `quay.io/minio/mc` (already the fallback after Docker Hub blocked
+  anonymous pulls of the same images) stopped allowing anonymous pulls too,
+  breaking every CI run and every fresh clone's local E2E stack. Confirmed at
+  the registry-protocol level, not a transient rate limit — quay.io issues an
+  anonymous token with `actions: []` for `minio/minio`. Switched to Adobe's
+  S3Mock (`adobe/s3mock`, still freely pullable); `minio-init` (mc-based)
+  replaced with `s3-init` (`curlimages/curl`, also freely pullable) — bucket
+  creation is a plain unsigned `curl -X PUT`, since S3Mock enforces no auth
+  on any request (no bucket-policy dance needed for the app's unsigned public
+  download URLs either — S3Mock doesn't even support bucket policies, but
+  doesn't need to). Verified against the real S3 operations
+  `CloudflareR2StorageService` uses, and with a full clean stack rebuild +
+  tier0 run (243/244 passed, 1 pre-existing drag-simulation flake unrelated
+  to storage, passed on retry).
 - `tests/competitions/sorteo-out-of-program.spec.ts` (2026-09-24): the
   review-mode inscription form test used `page.getByLabel(/Club/i)` — an
   unanchored regex that also matches every open dropdown option whose club

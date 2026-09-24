@@ -52,21 +52,28 @@ services:
   # (CLOUDFLARE_R2_ENDPOINT_OVERRIDE) specifically for this. Unlocks running
   # the backend as NODE_ENV=production for real here — see the `backend`
   # service comment below for why that matters beyond storage.
-  minio:
-    # Docker Hub no longer allows anonymous pulls of minio/minio or
-    # minio/mc ("pull access denied") — MinIO's official quay.io mirror
-    # is the drop-in replacement, same images/tags.
-    image: quay.io/minio/minio:latest
-    container_name: e2e-minio
-    command: server /data --console-address ":9001"
-    environment:
-      MINIO_ROOT_USER: e2eminioadmin
-      MINIO_ROOT_PASSWORD: e2eminioadmin
+  #
+  # Was MinIO (quay.io/minio/minio + quay.io/minio/mc) until 2026-09-24, when
+  # MinIO locked down anonymous pulls of those images on quay.io too (Docker
+  # Hub had already been blocked for a while — see git history). Confirmed at
+  # the registry-protocol level: quay.io issues an anonymous token with
+  # `actions: []` for minio/minio, not a transient rate limit. Switched to
+  # Adobe's S3Mock, which still allows anonymous pulls and — unlike MinIO —
+  # doesn't enforce any auth on requests by default, so no credentials/signing
+  # setup is needed for the app's plain `${publicUrl}/${filePath}` downloads
+  # (CloudflareR2StorageService.getDownloadUrl never signs; MinIO needed the
+  # `mc anonymous set download` bucket policy for this to work, S3Mock just
+  # allows it out of the box). No bucket policy support in S3Mock at all —
+  # confirmed CreateBucket/PutObject/HeadObject/CopyObject/ListObjectsV2 (the
+  # only operations CloudflareR2StorageService actually uses) all work fine
+  # against it.
+  s3-mock:
+    image: adobe/s3mock:latest
+    container_name: e2e-s3mock
     ports:
-      - "9000:9000"
-      - "9001:9001"
+      - "9000:9090"
     healthcheck:
-      test: ["CMD", "mc", "ready", "local"]
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:9090/"]
       interval: 5s
       timeout: 5s
       retries: 10
@@ -74,20 +81,20 @@ services:
     networks:
       - e2e-network
 
-  # One-shot init container: creates the bucket MinIO doesn't have by
-  # default and exits. `backend` waits on this completing, not on `minio`
+  # One-shot init container: creates the bucket S3Mock doesn't have by
+  # default and exits. `backend` waits on this completing, not on `s3-mock`
   # directly, so the bucket is guaranteed to exist before the app starts.
-  minio-init:
-    image: quay.io/minio/mc:latest
-    container_name: e2e-minio-init
+  # S3Mock doesn't enforce auth on any request, so a plain unsigned `curl -X
+  # PUT` (no aws-cli/mc, no credentials) is enough to create the bucket.
+  s3-init:
+    image: curlimages/curl:latest
+    container_name: e2e-s3-init
     depends_on:
-      minio:
+      s3-mock:
         condition: service_healthy
     entrypoint: >
       sh -c "
-        mc alias set e2e http://minio:9000 e2eminioadmin e2eminioadmin &&
-        mc mb --ignore-existing e2e/fedururemo-e2e &&
-        mc anonymous set download e2e/fedururemo-e2e
+        curl -sf -X PUT http://s3-mock:9090/fedururemo-e2e
       "
     networks:
       - e2e-network
@@ -100,9 +107,9 @@ services:
     ports:
       - "3001:3000"
     environment:
-      # Real "production" mode, not a stand-in — MinIO above is what makes
+      # Real "production" mode, not a stand-in — S3Mock above is what makes
       # this possible without a real Cloudflare R2 bucket (see comment on
-      # the `minio` service). This also un-inerts NODE_ENV==="production"
+      # the `s3-mock` service). This also un-inerts NODE_ENV==="production"
       # -gated behavior elsewhere, notably the strict 10-req/15min login
       # rate limiter (rate-limit.middleware.ts) — Fase 7.2's rate-limiting
       # test can run against this stack now instead of needing staging.
@@ -129,12 +136,15 @@ services:
       # etc.) inside one window, tripping UPLOAD_RATE_LIMIT_EXCEEDED 429s
       # mid-suite. Overridden here only — see env.config.ts.
       DOCUMENT_UPLOAD_RATE_LIMIT_MAX_OVERRIDE: "1000"
+      # S3Mock doesn't enforce auth at all — these credentials are never
+      # actually checked, kept only because the SDK client requires some
+      # value to be configured.
       CLOUDFLARE_R2_ACCOUNT_ID: e2e
-      CLOUDFLARE_R2_ACCESS_KEY_ID: e2eminioadmin
-      CLOUDFLARE_R2_SECRET_ACCESS_KEY: e2eminioadmin
+      CLOUDFLARE_R2_ACCESS_KEY_ID: e2etest
+      CLOUDFLARE_R2_SECRET_ACCESS_KEY: e2etest
       CLOUDFLARE_R2_BUCKET_NAME: fedururemo-e2e
       CLOUDFLARE_R2_PUBLIC_URL: http://localhost:9000/fedururemo-e2e
-      CLOUDFLARE_R2_ENDPOINT_OVERRIDE: http://minio:9000
+      CLOUDFLARE_R2_ENDPOINT_OVERRIDE: http://s3-mock:9090
       CLOUDFLARE_R2_FORCE_PATH_STYLE: "true"
       JWT_ALGORITHM: RS256
       JWT_ACCESS_TOKEN_EXPIRES_IN: 15m
@@ -222,7 +232,7 @@ services:
         condition: service_healthy
       ocr-stub:
         condition: service_started
-      minio-init:
+      s3-init:
         condition: service_completed_successfully
     networks:
       - e2e-network

@@ -154,20 +154,23 @@ enforcing (or further breaking) them shows up as a failing/changed test, not a s
   surfaced this. Fixed in `ocr-http-client.service.ts` to parse the real shape, with a new
   regression suite (`tests/unit/.../ocr-http-client.service.spec.ts`, 3/3 passing) that also
   asserts the old snake_case fields are never read even if present.
-- **`NODE_ENV=production` hard-requires Cloudflare R2 — now satisfied via MinIO.**
+- **`NODE_ENV=production` hard-requires Cloudflare R2 — now satisfied via an S3-compatible
+  double** (originally MinIO's `minio`/`minio-init` services; switched to `s3-mock`/`s3-init`
+  2026-09-24 once MinIO locked down anonymous image pulls — see the `s3-mock` service comment
+  in `docker-compose.e2e.yml` for the full story).
   `shared.dependencies.ts` fails fast (by design) if `NODE_ENV==="production"` and R2 env vars
   are missing. Rather than working around this with `NODE_ENV=test` (which also silently
   disabled the login rate limiter, see next item), added `CLOUDFLARE_R2_ENDPOINT_OVERRIDE` /
   `CLOUDFLARE_R2_FORCE_PATH_STYLE` to `env.config.ts` + `cloudflare-r2-storage.service.ts`
-  (test-stack-only, never set in real deployments), and added `minio` + `minio-init` services
-  to `docker-compose.e2e.yml`. The backend now runs `NODE_ENV: production` for real here.
+  (test-stack-only, never set in real deployments). The backend now runs `NODE_ENV: production`
+  for real here.
 - **Login rate limiter (10 req/15min/IP, production-only) blocked the login suite.**
   Surfaced once the stack ran true production mode: `login.spec.ts` logs in as all 11 fixture
   roles from a single IP in one run, which exceeds the real 10/15min login limiter
   (`rate-limit.middleware.ts`) — correct behavior for real prod, not a bug. Added an explicit
   `LOGIN_RATE_LIMIT_MAX_OVERRIDE` env var (optional, unset in real deployments, so production
   keeps enforcing 10/15min) and set it to `1000` in this compose file only. 12/12 tests in
-  `login.spec.ts` pass against the resulting true-production + MinIO stack.
+  `login.spec.ts` pass against the resulting true-production stack.
 - `RowingFederation-Frontend/next.config.ts`: CSP `connect-src`/`img-src` had
   `https://api.fedururemo.com` hardcoded, so any other production-mode build (this one, a
   staging deploy, a preview) pointing `NEXT_PUBLIC_API_URL` elsewhere was silently blocked by
