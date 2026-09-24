@@ -9,6 +9,12 @@ until merged, at which point the section is retitled with the merge date.
 ## [Unreleased]
 
 ### Added
+- `tests/competitions/sorteo-qualification-note.spec.ts` (3 tests, 2026-09-24
+  — see sibling Backend/Frontend CHANGELOGs for the per-event qualification
+  note feature): write + persist-across-reload + clear-deletes-the-row
+  round trip through the sorteo proposal UI, the read-only lock once a
+  prueba's sorteo is confirmed, and the REGATTA_MANAGERS write guard
+  (CLUB_DELEGATE gets 403).
 - `tests/competitions/sorteo-final-to-heats.spec.ts` (3 tests, 2026-09-23 —
   see sibling Backend/Frontend CHANGELOGs for the manual "pasar a
   eliminatorias" feature): converting a direct final to heats splits it
@@ -120,6 +126,16 @@ until merged, at which point the section is retitled with the merge date.
 **Verification**: full suite run clean (238 passed, 1 pre-existing flaky
 test passed on retry — Postgres SSI contention, documented/unrelated) — see
 note below on 1 unrelated pre-existing failure found while verifying.
+
+### Fixed
+- `tests/competitions/sorteo-out-of-program.spec.ts` (2026-09-24): the
+  review-mode inscription form test used `page.getByLabel(/Club/i)` — an
+  unanchored regex that also matches every open dropdown option whose club
+  name contains "Club" (e.g. "Club Audit f647ba6f"), causing a strict-mode
+  violation once enough clubs accumulate across a full-suite run. This is
+  what caused the divergent `push` vs `pull_request` CI outcome on the same
+  commit — whichever run had more accumulated clubs at that point tripped
+  the ambiguity. Fixed to `getByLabel("Club", { exact: true })`.
 
 ---
 
