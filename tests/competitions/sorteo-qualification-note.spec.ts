@@ -169,9 +169,13 @@ test("qualification note locks to read-only once the prueba's sorteo is confirme
   await page.getByRole("button", { name: "Confirmar prueba" }).first().click();
   await expect(page.getByText("Prueba confirmada")).toBeVisible();
 
-  // Locked immediately, still inside the sheet: plain text, no textbox.
-  await expect(page.getByLabel("Clasificación a la final")).not.toBeVisible();
-  await expect(page.getByText("Clasifican los 4 mejores tiempos.")).toBeVisible();
+  // Locked immediately, still inside the sheet: plain text, no textbox. The
+  // page underneath the still-open sheet has already swapped to ProgramView
+  // too (sorteoConfirmed flips as soon as the confirmed entries refetch),
+  // so both copies show the read-only note at once — scope to the sheet.
+  const sheet = page.getByLabel("Propuesta de sorteo");
+  await expect(sheet.getByLabel("Clasificación a la final")).not.toBeVisible();
+  await expect(sheet.getByText("Clasifican los 4 mejores tiempos.")).toBeVisible();
 
   // Still locked after reload, now viewed through the confirmed official
   // program view (review page switches away from the sheet once every
