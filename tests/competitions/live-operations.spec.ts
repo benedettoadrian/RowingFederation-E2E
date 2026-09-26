@@ -229,7 +229,7 @@ test("Control de Pista can authorize a boat @tier0", async () => {
 
 test("Control de Pista rejection for safety requires notes and excludes the boat via DSQ @tier0", async () => {
   const regattaToken = await apiLoginAs("REGATTA_COMMISSION");
-  const { adminToken, entry1, raceA, fx, club1Token } = await setupLiveRace(regattaToken);
+  const { adminToken, entry1, raceA, fx } = await setupLiveRace(regattaToken);
   const referee = await createReferee(adminToken, `cps-${randomUUID().slice(0, 6)}`);
   await assignPost(regattaToken, fx.competitionDateId, referee.userId, "CONTROL_PISTA");
 
@@ -252,9 +252,14 @@ test("Control de Pista rejection for safety requires notes and excludes the boat
     referee.token
   );
 
+  // GET /crew-entries/all is the referee/regatta-manager working view —
+  // always raw, never confirmedAt-gated. The club-scoped endpoint waits for
+  // the president to confirm the block, same as the public feed — a
+  // delegate must not see their own boat's result before it's official,
+  // confirmed with the business owner.
   const entries = await api.get<{ data: { id: string; result?: { resultCode: string } }[] }>(
-    `/competitions/crew-entries?competitionDateId=${fx.competitionDateId}&clubId=${fx.club1Id}`,
-    club1Token
+    `/competitions/crew-entries/all?competitionDateId=${fx.competitionDateId}`,
+    regattaToken
   );
   expect(entries.data.find((e) => e.id === entry1.data.id)?.result?.resultCode).toBe("DSQ");
 });
@@ -275,11 +280,15 @@ test("a referee without an active CONTROL_PISTA assignment cannot register a che
 
 // ── Lancha: tomar / largar / finalizar (C9-C10) ────────────────────────────
 
-test("Lancha can claim, largar, and finish a race @tier0", async () => {
+test("Lancha can claim and largar, Mesa de Llegada finishes the race @tier0", async () => {
   const regattaToken = await apiLoginAs("REGATTA_COMMISSION");
   const { adminToken, fx, raceA } = await setupLiveRace(regattaToken);
   const referee = await createReferee(adminToken, `lc-${randomUUID().slice(0, 6)}`);
   await assignPost(regattaToken, fx.competitionDateId, referee.userId, "LANCHA", 1);
+  // Finalizar prueba belongs to Mesa de Llegada only, not the Lancha that
+  // claimed/started it — see finish-race-execution.use-case.ts's docstring.
+  const finisher = await createReferee(adminToken, `mll-${randomUUID().slice(0, 6)}`);
+  await assignPost(regattaToken, fx.competitionDateId, finisher.userId, "MESA_LLEGADA");
 
   const claimed = await withRetry(() =>
     api.post<{ data: { status: string } }>(`/competitions/race-executions/${raceA.id}/claim`, {}, referee.token)
@@ -293,10 +302,14 @@ test("Lancha can claim, largar, and finish a race @tier0", async () => {
   );
   expect(started.data.startedAt).toBeTruthy();
 
+  await expect(
+    api.post(`/competitions/race-executions/${raceA.id}/finish`, {}, referee.token)
+  ).rejects.toMatchObject({ status: 403 } satisfies Partial<ApiError>);
+
   const finished = await api.post<{ data: { endedAt: string } }>(
     `/competitions/race-executions/${raceA.id}/finish`,
     {},
-    referee.token
+    finisher.token
   );
   expect(finished.data.endedAt).toBeTruthy();
 });
@@ -306,6 +319,8 @@ test("only one race can be IN_PROGRESS per competition date at a time @tier0", a
   const { adminToken, fx, raceA, raceB } = await setupLiveRace(regattaToken);
   const referee = await createReferee(adminToken, `lc2-${randomUUID().slice(0, 6)}`);
   await assignPost(regattaToken, fx.competitionDateId, referee.userId, "LANCHA", 1);
+  const finisher = await createReferee(adminToken, `mll2-${randomUUID().slice(0, 6)}`);
+  await assignPost(regattaToken, fx.competitionDateId, finisher.userId, "MESA_LLEGADA");
 
   await withRetry(() => api.post(`/competitions/race-executions/${raceA.id}/claim`, {}, referee.token));
 
@@ -317,7 +332,7 @@ test("only one race can be IN_PROGRESS per competition date at a time @tier0", a
   ).rejects.toMatchObject({ status: 409 } satisfies Partial<ApiError>);
 
   // Freeing race A (finish) must let race B be claimed afterward.
-  await api.post(`/competitions/race-executions/${raceA.id}/finish`, {}, referee.token);
+  await api.post(`/competitions/race-executions/${raceA.id}/finish`, {}, finisher.token);
   const claimedB = await withRetry(() =>
     api.post<{ data: { status: string } }>(`/competitions/race-executions/${raceB.id}/claim`, {}, referee.token)
   );
@@ -385,7 +400,7 @@ test("two lanchas racing to claim TWO DIFFERENT races on the same date — exact
 
 test("a second card on the same boat auto-excludes it via DSQ @tier0", async () => {
   const regattaToken = await apiLoginAs("REGATTA_COMMISSION");
-  const { adminToken, fx, entry1, raceA, club1Token } = await setupLiveRace(regattaToken);
+  const { adminToken, fx, entry1, raceA } = await setupLiveRace(regattaToken);
   const referee = await createReferee(adminToken, `card-${randomUUID().slice(0, 6)}`);
   await assignPost(regattaToken, fx.competitionDateId, referee.userId, "LANCHA", 1);
 
@@ -407,16 +422,21 @@ test("a second card on the same boat auto-excludes it via DSQ @tier0", async () 
   );
   expect(second.data).toMatchObject({ cardCount: 2, excluded: true });
 
+  // GET /crew-entries/all is the referee/regatta-manager working view —
+  // always raw, never confirmedAt-gated. The club-scoped endpoint waits for
+  // the president to confirm the block, same as the public feed — a
+  // delegate must not see their own boat's result before it's official,
+  // confirmed with the business owner.
   const entries = await api.get<{ data: { id: string; result?: { resultCode: string } }[] }>(
-    `/competitions/crew-entries?competitionDateId=${fx.competitionDateId}&clubId=${fx.club1Id}`,
-    club1Token
+    `/competitions/crew-entries/all?competitionDateId=${fx.competitionDateId}`,
+    regattaToken
   );
   expect(entries.data.find((e) => e.id === entry1.data.id)?.result?.resultCode).toBe("DSQ");
 });
 
 test("two referees carding the same boat simultaneously — the exclusion is never lost @tier0", async () => {
   const regattaToken = await apiLoginAs("REGATTA_COMMISSION");
-  const { adminToken, fx, entry1, raceA, club1Token } = await setupLiveRace(regattaToken);
+  const { adminToken, fx, entry1, raceA } = await setupLiveRace(regattaToken);
   const refereeX = await createReferee(adminToken, `ccx-${randomUUID().slice(0, 6)}`);
   const refereeY = await createReferee(adminToken, `ccy-${randomUUID().slice(0, 6)}`);
   await assignPost(regattaToken, fx.competitionDateId, refereeX.userId, "LANCHA", 1);
@@ -456,9 +476,14 @@ test("two referees carding the same boat simultaneously — the exclusion is nev
   }
   expect(sawExcluded).toBe(true);
 
+  // GET /crew-entries/all is the referee/regatta-manager working view —
+  // always raw, never confirmedAt-gated. The club-scoped endpoint waits for
+  // the president to confirm the block, same as the public feed — a
+  // delegate must not see their own boat's result before it's official,
+  // confirmed with the business owner.
   const entries = await api.get<{ data: { id: string; result?: { resultCode: string } }[] }>(
-    `/competitions/crew-entries?competitionDateId=${fx.competitionDateId}&clubId=${fx.club1Id}`,
-    club1Token
+    `/competitions/crew-entries/all?competitionDateId=${fx.competitionDateId}`,
+    regattaToken
   );
   expect(entries.data.find((e) => e.id === entry1.data.id)?.result?.resultCode).toBe("DSQ");
 });
@@ -467,7 +492,7 @@ test("two referees carding the same boat simultaneously — the exclusion is nev
 
 test("Mesa de Llegada captures marks in order and assigns them, computing position and time @tier0", async () => {
   const regattaToken = await apiLoginAs("REGATTA_COMMISSION");
-  const { adminToken, fx, entry1, entry2, raceA, club1Token } = await setupLiveRace(regattaToken);
+  const { adminToken, fx, entry1, entry2, raceA } = await setupLiveRace(regattaToken);
   const lancha = await createReferee(adminToken, `mlA-${randomUUID().slice(0, 6)}`);
   const mesa = await createReferee(adminToken, `mlB-${randomUUID().slice(0, 6)}`);
   await assignPost(regattaToken, fx.competitionDateId, lancha.userId, "LANCHA", 1);
@@ -511,8 +536,8 @@ test("Mesa de Llegada captures marks in order and assigns them, computing positi
   const entries = await api.get<{
     data: { id: string; result?: { resultCode: string; position: number } }[];
   }>(
-    `/competitions/crew-entries?competitionDateId=${fx.competitionDateId}&clubId=${fx.club1Id}`,
-    club1Token
+    `/competitions/crew-entries/all?competitionDateId=${fx.competitionDateId}`,
+    regattaToken
   );
   expect(entries.data.find((e) => e.id === entry1.data.id)?.result).toMatchObject({
     resultCode: "FINISHED",
@@ -592,7 +617,7 @@ test("two mesa de llegada referees assigning DIFFERENT marks to the SAME boat �
 
 test("Mesa de Llegada assigning FINISHED and Control de Pista rejecting the same boat at nearly the same time — result ends up consistent, never corrupted @tier0", async () => {
   const regattaToken = await apiLoginAs("REGATTA_COMMISSION");
-  const { adminToken, fx, entry1, raceA, club1Token } = await setupLiveRace(regattaToken);
+  const { adminToken, fx, entry1, raceA } = await setupLiveRace(regattaToken);
   const lancha = await createReferee(adminToken, `xrA-${randomUUID().slice(0, 6)}`);
   const mesa = await createReferee(adminToken, `xrB-${randomUUID().slice(0, 6)}`);
   const pista = await createReferee(adminToken, `xrC-${randomUUID().slice(0, 6)}`);
@@ -637,8 +662,8 @@ test("Mesa de Llegada assigning FINISHED and Control de Pista rejecting the same
   const entries = await api.get<{
     data: { id: string; result?: { resultCode: string } }[];
   }>(
-    `/competitions/crew-entries?competitionDateId=${fx.competitionDateId}&clubId=${fx.club1Id}`,
-    club1Token
+    `/competitions/crew-entries/all?competitionDateId=${fx.competitionDateId}`,
+    regattaToken
   );
   const finalResult = entries.data.find((e) => e.id === entry1.data.id)?.result;
   expect(finalResult).toBeTruthy();

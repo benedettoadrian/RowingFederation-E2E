@@ -135,6 +135,11 @@ test("golden path: World Rowing method through a real championship, end to end @
   );
   expect(calc.updated).toBe(2);
 
+  // GET /crew-entries/all is the referee/regatta-manager working view —
+  // always raw, never confirmedAt-gated. The club-scoped endpoint
+  // (GET /crew-entries?clubId=) waits for the president to confirm the
+  // block, same as the public feed — a delegate must not see their own
+  // boat's result before it's official, confirmed with the business owner.
   const list = await api.get<{
     data: Array<{
       id: string;
@@ -145,15 +150,11 @@ test("golden path: World Rowing method through a real championship, end to end @
         officialTime: string | null;
       } | null;
     }>;
-  }>(`/competitions/crew-entries?competitionDateId=${fx.competitionDateId}&clubId=${fx.club1Id}`, club1Token);
+  }>(`/competitions/crew-entries/all?competitionDateId=${fx.competitionDateId}`, regattaToken);
   const result1 = list.data.find((e) => e.id === entry1.data.id)?.result;
   expect(result1).toMatchObject({ handicapMethod: "WORLD_ROWING", coefficientVersion: "WR_2026_03" });
 
-  const list2 = await api.get<{ data: Array<{ id: string; result: { handicapCentiseconds: number | null } | null }> }>(
-    `/competitions/crew-entries?competitionDateId=${fx.competitionDateId}&clubId=${fx.club2Id}`,
-    club2Token
-  );
-  const result2 = list2.data.find((e) => e.id === entry2.data.id)?.result;
+  const result2 = list.data.find((e) => e.id === entry2.data.id)?.result;
 
   // Federation's own worked example: M 1x, 50 vs 60 years -> 9.167s apart —
   // not FUR's flat 10s for the same 10-year gap.
@@ -271,7 +272,7 @@ test("standalone date (no championship) with its own World Rowing method calcula
 
   const list = await api.get<{
     data: Array<{ id: string; result: { handicapMethod: string | null; handicapCentiseconds: number | null } | null }>;
-  }>(`/competitions/crew-entries?competitionDateId=${fx.competitionDateId}&clubId=${fx.club1Id}`, club1Token);
+  }>(`/competitions/crew-entries/all?competitionDateId=${fx.competitionDateId}`, regattaToken);
   const result = list.data.find((e) => e.id === entry1.data.id)?.result;
 
   // Reference is this date's own gender+class at age 27 (Sistema Agazzi
