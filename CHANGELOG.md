@@ -9,6 +9,15 @@ until merged, at which point the section is retitled with the merge date.
 ## [Unreleased]
 
 ### Added
+- `tests/competitions/swap-final-qualifier.spec.ts` (4 tests, 2026-09-26 —
+  see sibling Backend/Frontend CHANGELOGs for the ADMIN final-qualifier
+  swap feature): golden path (a non-qualifying boat promoted into the
+  vacated Final lane, outgoing entry deleted, both heat entries left
+  untouched) plus non-ADMIN 403, blocked once the final result is
+  confirmed, and incoming entry already in a Final rejected. Minimal
+  fixture: 1 heat series, 3 single-seat boats, auto-draw-final's
+  `maxLanes: 2` (independent of the pista's real `maxLanes`, which only
+  constrains sorteo/confirm's own lane assignment).
 - `tests/competitions/official-program-banner.spec.ts` (2026-09-24 — see
   sibling Frontend CHANGELOG for the banner itself): absent before CLOSED,
   visible with the right name + CTA href on the public home page and every
