@@ -42,9 +42,25 @@ interface EntryWithMasterResult {
   } | null;
 }
 
+// A CLUB_DELEGATE's own club view waits for the date's president to confirm
+// the block — same rule as the public feed, confirmed explicitly with the
+// business owner: a delegate must not see their own boat's result (handicap
+// included) before it's official. Only use this AFTER confirm-block; for
+// checking a just-calculated-but-not-yet-confirmed handicap, use
+// getEntriesAsReferee below instead.
 async function getEntries(competitionDateId: string, clubId: string, token: string) {
   const list = await api.get<{ data: EntryWithMasterResult[] }>(
     `/competitions/crew-entries?competitionDateId=${competitionDateId}&clubId=${clubId}`,
+    token
+  );
+  return list.data;
+}
+
+// GET /crew-entries/all is the referee/regatta-manager working view — always
+// raw, never confirmedAt-gated.
+async function getEntriesAsReferee(competitionDateId: string, token: string) {
+  const list = await api.get<{ data: EntryWithMasterResult[] }>(
+    `/competitions/crew-entries/all?competitionDateId=${competitionDateId}`,
     token
   );
   return list.data;
@@ -151,7 +167,7 @@ test("golden path: save net times -> calculate handicap -> confirm block, older 
   test.setTimeout(90_000);
   const adminToken = await apiLoginAs("ADMIN");
   const regattaToken = await apiLoginAs("REGATTA_COMMISSION");
-  const { fx, entry1, entry2, club1Token, club2Token } = await setupMasterRace(adminToken, regattaToken);
+  const { fx, entry1, entry2, club1Token } = await setupMasterRace(adminToken, regattaToken);
 
   // entry1 (age 53, handicap 0) is nominally faster on the clock than
   // entry2 (age 63, handicap 10s) — but 10s of handicap flips the placing:
@@ -174,12 +190,11 @@ test("golden path: save net times -> calculate handicap -> confirm block, older 
   );
   expect(calc.updated).toBe(2);
 
-  const entries = await getEntries(fx.competitionDateId, fx.club1Id, club1Token);
+  const entries = await getEntriesAsReferee(fx.competitionDateId, regattaToken);
   const result1 = entries.find((e) => e.id === entry1.data.id)?.result;
   expect(result1).toMatchObject({ averageAge: 53, handicapSeconds: 0, officialTime: "4:10.00", position: 2, resultSource: "AUTO" });
 
-  const entries2 = await getEntries(fx.competitionDateId, fx.club2Id, club2Token);
-  const result2 = entries2.find((e) => e.id === entry2.data.id)?.result;
+  const result2 = entries.find((e) => e.id === entry2.data.id)?.result;
   expect(result2).toMatchObject({ averageAge: 63, handicapSeconds: 10, officialTime: "4:05.00", position: 1, resultSource: "AUTO" });
 
   await api.post(

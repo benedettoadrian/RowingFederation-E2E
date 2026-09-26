@@ -49,6 +49,13 @@ interface EntryWithResult {
 // PUT .../result responds { success, message } with no `data` (same shape
 // as the status-transition endpoint) — the saved result is confirmed via a
 // follow-up GET of the entry list, reading its nested `result` field.
+//
+// A CLUB_DELEGATE's own club view (GET /crew-entries?clubId=) waits for the
+// date's president to confirm the block — same rule as the public feed,
+// confirmed explicitly with the business owner: a delegate must not see
+// their own boat's result before it's official. So this only works for an
+// ALREADY-CONFIRMED result; use getResultAsReferee below to check a result
+// that was just saved but not yet confirmed.
 async function getResult(
   fx: Awaited<ReturnType<typeof setupInscriptionFixtures>>,
   entryId: string,
@@ -56,6 +63,22 @@ async function getResult(
 ) {
   const list = await api.get<{ data: EntryWithResult[] }>(
     `/competitions/crew-entries?competitionDateId=${fx.competitionDateId}&clubId=${fx.club1Id}`,
+    token
+  );
+  return list.data.find((e) => e.id === entryId)?.result ?? null;
+}
+
+// GET /crew-entries/all is the referee/regatta-manager working view — always
+// raw, never confirmedAt-gated (that gate exists for the public/delegate
+// feeds, not the people actually running the competition). Use this to
+// verify a result was saved correctly before/without confirming its block.
+async function getResultAsReferee(
+  fx: Awaited<ReturnType<typeof setupInscriptionFixtures>>,
+  entryId: string,
+  token: string
+) {
+  const list = await api.get<{ data: EntryWithResult[] }>(
+    `/competitions/crew-entries/all?competitionDateId=${fx.competitionDateId}`,
     token
   );
   return list.data.find((e) => e.id === entryId)?.result ?? null;
@@ -77,7 +100,7 @@ test("golden path: REGATTA_COMMISSION sets a FINISHED result @tier0", async () =
     )
   );
 
-  const result = await getResult(fx, entry.data.id, club1Token);
+  const result = await getResultAsReferee(fx, entry.data.id, regattaToken);
   expect(result?.resultCode).toBe("FINISHED");
   expect(result?.position).toBe(1);
 });
@@ -94,8 +117,34 @@ test("REFEREE can also set a result @tier0", async () => {
     api.put(`/competitions/crew-entries/${entry.data.id}/result`, { resultCode: "DNS" }, refereeToken)
   );
 
-  const result = await getResult(fx, entry.data.id, club1Token);
+  const result = await getResultAsReferee(fx, entry.data.id, refereeToken);
   expect(result?.resultCode).toBe("DNS");
+});
+
+test("a CLUB_DELEGATE cannot see their own boat's result until the president confirms the block @tier0", async () => {
+  const adminToken = await apiLoginAs("ADMIN");
+  const regattaToken = await apiLoginAs("REGATTA_COMMISSION");
+  const fx = await setupInscriptionFixtures(adminToken);
+  const club1Token = await loginAs(fx.club1.delegateEmail, fx.club1.delegatePassword);
+
+  const entry = await createEntry(fx, club1Token);
+  await withConflictRetry(() =>
+    api.put(
+      `/competitions/crew-entries/${entry.data.id}/result`,
+      { resultCode: "FINISHED", position: 1, time: "3:45.20" },
+      regattaToken
+    )
+  );
+
+  // Saved and visible to a referee/regatta manager (the working view)...
+  const asReferee = await getResultAsReferee(fx, entry.data.id, regattaToken);
+  expect(asReferee?.resultCode).toBe("FINISHED");
+
+  // ...but the delegate — even for their own club's own boat — sees nothing
+  // until the date's president confirms the block. Same rule as the public
+  // feed; confirmed explicitly with the business owner.
+  const asDelegate = await getResult(fx, entry.data.id, club1Token);
+  expect(asDelegate).toBeNull();
 });
 
 test("CLUB_DELEGATE cannot set a result @tier0", async () => {
@@ -148,7 +197,7 @@ test("FINISHED result no longer requires a position at save time — the gate mo
       regattaToken
     )
   );
-  const result = await getResult(fx, entry.data.id, club1Token);
+  const result = await getResultAsReferee(fx, entry.data.id, regattaToken);
   expect(result?.resultCode).toBe("FINISHED");
   expect(result?.position).toBeNull();
 
@@ -181,7 +230,7 @@ test("a result can be set while the date is still INSCRIPTION_OPEN, not just IN_
     )
   );
 
-  const result = await getResult(fx, entry.data.id, club1Token);
+  const result = await getResultAsReferee(fx, entry.data.id, regattaToken);
   expect(result?.resultCode).toBe("FINISHED");
 });
 
