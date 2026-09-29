@@ -9,6 +9,18 @@ until merged, at which point the section is retitled with the merge date.
 ## [Unreleased]
 
 ### Added
+- `tests/competitions/sorteo-series-reorg.spec.ts` (6 tests, 2026-09-29 —
+  see sibling Backend/Frontend CHANGELOGs for the series merge/reorganize
+  feature): 2-series UI merge via the review screen, 3-series UI
+  reorganization into 1 group via real dnd-kit drag&drop, merge blocked
+  past the configured lane ceiling, merge blocked once a result is loaded,
+  only the regatta commission/admin/assigned referee president can merge
+  (a differently-assigned referee gets 403), and reorganize's validation +
+  undo (rejects an unassigned boat, rejects a non-reducing grouping, and a
+  second undo of the same batch is refused since the state no longer
+  matches). Series are set directly via `sorteo/confirm` rather than the
+  real draw algorithm — deterministic, and this feature is about editing an
+  existing draw, not the draw itself.
 - `tests/competitions/swap-final-qualifier.spec.ts` (4 tests, 2026-09-26 —
   see sibling Backend/Frontend CHANGELOGs for the ADMIN final-qualifier
   swap feature): golden path (a non-qualifying boat promoted into the
